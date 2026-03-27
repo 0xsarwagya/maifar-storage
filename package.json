@@ -1,0 +1,27 @@
+{
+  "name": "maifar-storage",
+  "version": "1.0.0",
+  "description": "MQTT JSON ingest → PostgreSQL batch flush + HTTP export API (Bun)",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "db:migrate": "bun run scripts/migrate.ts",
+    "test": "bun test",
+    "test:unit": "bun test tests/unit",
+    "test:integration": "bun test tests/integration",
+    "test:smoke": "bun test tests/smoke",
+    "test:coverage": "bun test --coverage"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.3",
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "aedes": "^1.0.2"
+  }
+}
