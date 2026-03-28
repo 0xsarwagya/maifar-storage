@@ -4,6 +4,9 @@ import { loadConfig } from "../../src/config";
 const keys = [
   "DATABASE_URL",
   "AUTO_MIGRATE",
+  "DATABASE_TLS_INSECURE",
+  "DATABASE_TLS_REJECT_UNAUTHORIZED",
+  "DATABASE_TLS_CA_FILE",
   "MQTT_URL",
   "MQTT_HOST",
   "MQTT_PORT",
@@ -51,6 +54,9 @@ describe("loadConfig", () => {
   function baseEnv() {
     prev = snapshotEnv();
     delete process.env.AUTO_MIGRATE;
+    delete process.env.DATABASE_TLS_INSECURE;
+    delete process.env.DATABASE_TLS_REJECT_UNAUTHORIZED;
+    delete process.env.DATABASE_TLS_CA_FILE;
     delete process.env.MQTT_TLS_INSECURE;
     delete process.env.MQTT_TLS_REJECT_UNAUTHORIZED;
     delete process.env.MQTT_TLS_CA_FILE;
@@ -86,6 +92,8 @@ describe("loadConfig", () => {
     expect(c.deviceIdJsonKey).toBeUndefined();
     expect(c.mqttTlsRejectUnauthorized).toBe(true);
     expect(c.mqttTlsCa).toBeUndefined();
+    expect(c.databaseTlsRejectUnauthorized).toBe(true);
+    expect(c.databaseTlsCa).toBeUndefined();
   });
 
   test("trims topics and optional json key", () => {
@@ -333,5 +341,30 @@ describe("loadConfig", () => {
     process.env.MQTT_TLS_CA_FILE = "/nonexistent/maifar-ca-bundle.pem";
 
     expect(() => loadConfig()).toThrow(/MQTT_TLS_CA_FILE/);
+  });
+
+  test("DATABASE_TLS_INSECURE=true disables Postgres TLS verification flag", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.DATABASE_TLS_INSECURE = "true";
+
+    const c = loadConfig();
+    expect(c.databaseTlsRejectUnauthorized).toBe(false);
+  });
+
+  test("throws when DATABASE_TLS_CA_FILE is missing", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.DATABASE_TLS_CA_FILE = "/nonexistent/db-ca.pem";
+
+    expect(() => loadConfig()).toThrow(/DATABASE_TLS_CA_FILE/);
   });
 });

@@ -63,6 +63,7 @@ flowchart LR
 | [`src/api-docs.ts`](src/api-docs.ts) + [`src/openapi-spec.ts`](src/openapi-spec.ts) | OpenAPI + doc shells |
 | [`src/config.ts`](src/config.ts) | Environment |
 | [`src/db.ts`](src/db.ts) | `postgres` client |
+| [`src/pg-tls.ts`](src/pg-tls.ts) | Optional Postgres `ssl` options from env |
 | [`schema.sql`](schema.sql) | Table + indexes |
 | [`scripts/migrate.ts`](scripts/migrate.ts) | Apply `schema.sql` |
 | [`docker-compose.yml`](docker-compose.yml) | Postgres + optional Mosquitto |
@@ -120,6 +121,9 @@ flowchart LR
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | yes | PostgreSQL connection URL |
+| `DATABASE_TLS_CA_FILE` | no | PEM CA path for Postgres TLS (trust private CA without disabling verification) |
+| `DATABASE_TLS_INSECURE` | no | If `true` / `1` / `yes` / `on`, **`ssl: { rejectUnauthorized: false }`** for Postgres (**insecure**) |
+| `DATABASE_TLS_REJECT_UNAUTHORIZED` | no | Set to `false` / `0` / `no` / `off` to skip Postgres TLS cert verification |
 | `AUTO_MIGRATE` | no | If not `false` / `0` / `no` / `off`, apply `schema.sql` once at process startup before MQTT/HTTP (default **on**) |
 | `MQTT_HOST` | yes* | Broker hostname (*required if neither `MQTT_URL` nor `MQTT_SERVERS` is set) |
 | `MQTT_PORT` | no | Broker port; default **1883** without TLS, **8883** when `MQTT_SSL` / `MQTT_TLS` is enabled |
@@ -202,7 +206,7 @@ TEST_DATABASE_URL=postgres://user:pass@localhost:5432/maifar bun test
 | MQTT `ECONNREFUSED` / timeout | Host, port (`1883` vs `8883`), firewall, `mqtt://` vs `mqtts://` |
 | `Not authorized` / connection closed | `MQTT_USERNAME` / `MQTT_PASSWORD`, broker ACLs, or credentials in `MQTT_URL` |
 | TLS / certificate errors | Install broker CA on the host, or set **`MQTT_TLS_CA_FILE`** to a PEM bundle; last resort **`MQTT_TLS_INSECURE=true`** (dev only) |
-| `SELF_SIGNED_CERT_IN_CHAIN` | Broker uses a cert not in Bun’s default trust store; prefer **`MQTT_TLS_CA_FILE`**, or **`MQTT_TLS_INSECURE=true`** only for testing |
+| `SELF_SIGNED_CERT_IN_CHAIN` on startup | Often **Postgres** during **`AUTO_MIGRATE`** (runs before MQTT). Set **`DATABASE_TLS_INSECURE=true`** or **`DATABASE_TLS_CA_FILE`**. If it happens after connect, check **`MQTT_TLS_*`** for the broker |
 | `subscribe failed` | Broker ACLs for `MQTT_TOPICS` patterns |
 | `database: down` in `/health` | `DATABASE_URL`, Postgres listening, SSL mode if required |
 | No rows in `/messages` | Topic match, JSON payloads, flush interval, check `[mqtt]` / `[flush]` logs |

@@ -26,7 +26,7 @@ export type CreateAppOptions = {
 
 export function createApp(options: CreateAppOptions = {}): AppInstance {
   const config = loadConfig();
-  const sql = createDb(config.databaseUrl);
+  const sql = createDb(config.databaseUrl, config);
   const { flush } = createFlushWorker(sql, config.batchMax, options.flushDeps ?? {});
 
   const mqttClient = startMqttIngest(config, () => {

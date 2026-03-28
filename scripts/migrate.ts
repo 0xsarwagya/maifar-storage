@@ -1,3 +1,4 @@
+import { loadDatabaseTlsFromEnv } from "../src/config";
 import { migrateDatabase } from "../src/schema-migrate";
 
 const url = process.env.DATABASE_URL;
@@ -7,7 +8,7 @@ if (!url) {
 }
 
 try {
-  await migrateDatabase(url);
+  await migrateDatabase(url, loadDatabaseTlsFromEnv());
   console.log("Migration applied.");
 } catch (e) {
   console.error(e);

@@ -3,8 +3,13 @@ import { loadConfig } from "./config";
 import { migrateDatabase } from "./schema-migrate";
 
 const config = loadConfig();
+if (!config.databaseTlsRejectUnauthorized) {
+  console.warn(
+    "[db] PostgreSQL TLS certificate verification disabled (DATABASE_TLS_INSECURE or DATABASE_TLS_REJECT_UNAUTHORIZED=false)",
+  );
+}
 if (config.autoMigrate) {
-  await migrateDatabase(config.databaseUrl);
+  await migrateDatabase(config.databaseUrl, config);
   console.log("[db] schema migration applied");
 }
 

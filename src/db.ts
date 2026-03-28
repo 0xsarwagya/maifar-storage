@@ -1,6 +1,9 @@
 import postgres from "postgres";
+import type { DatabaseTlsSettings } from "./config";
+import { postgresSslConnectOption } from "./pg-tls";
 
-export function createDb(databaseUrl: string) {
+export function createDb(databaseUrl: string, tls: DatabaseTlsSettings) {
+  const ssl = postgresSslConnectOption(tls);
   return postgres(databaseUrl, {
     max: 10,
     idle_timeout: 30,
@@ -8,6 +11,7 @@ export function createDb(databaseUrl: string) {
     types: {
       bigint: postgres.BigInt,
     },
+    ...(ssl !== undefined ? { ssl } : {}),
   });
 }
 

@@ -34,6 +34,47 @@ function resolveMqttTlsCaPem(): string | undefined {
   }
 }
 
+/** PostgreSQL (used by migrate + pool): verify server cert unless opted out. */
+function resolveDatabaseTlsRejectUnauthorized(): boolean {
+  if (mqttTlsEnvTruthy(process.env.DATABASE_TLS_INSECURE)) {
+    return false;
+  }
+  const rau = process.env.DATABASE_TLS_REJECT_UNAUTHORIZED?.trim().toLowerCase();
+  if (
+    rau === "false" ||
+    rau === "0" ||
+    rau === "no" ||
+    rau === "off"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function resolveDatabaseTlsCaPem(): string | undefined {
+  const p = process.env.DATABASE_TLS_CA_FILE?.trim();
+  if (!p) return undefined;
+  try {
+    return readFileSync(p, "utf8");
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`DATABASE_TLS_CA_FILE (${p}): ${msg}`);
+  }
+}
+
+export type DatabaseTlsSettings = {
+  databaseTlsRejectUnauthorized: boolean;
+  databaseTlsCa?: string;
+};
+
+/** For `postgres` + migrate script without full app env. */
+export function loadDatabaseTlsFromEnv(): DatabaseTlsSettings {
+  return {
+    databaseTlsRejectUnauthorized: resolveDatabaseTlsRejectUnauthorized(),
+    databaseTlsCa: resolveDatabaseTlsCaPem(),
+  };
+}
+
 function requireEnv(name: string): string {
   const v = process.env[name];
   if (v === undefined || v === "") {
@@ -125,6 +166,8 @@ function resolveMqttConnection(): MqttConnectionConfig {
 
 export type AppConfig = {
   databaseUrl: string;
+  databaseTlsRejectUnauthorized: boolean;
+  databaseTlsCa?: string;
   /** When true, `src/index.ts` applies `schema.sql` before serving (idempotent). */
   autoMigrate: boolean;
   mqtt: MqttConnectionConfig;
@@ -178,8 +221,11 @@ export function loadConfig(): AppConfig {
     autoMigrateRaw !== "no" &&
     autoMigrateRaw !== "off";
 
+  const databaseTls = loadDatabaseTlsFromEnv();
+
   return {
     databaseUrl: requireEnv("DATABASE_URL"),
+    ...databaseTls,
     autoMigrate,
     mqtt: resolveMqttConnection(),
     mqttUsername,
