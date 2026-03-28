@@ -7,7 +7,11 @@ import type { QueuedRow } from "./types";
 function buildClientOptions(
   config: Pick<
     AppConfig,
-    "mqttUsername" | "mqttPassword" | "mqttClientId"
+    | "mqttUsername"
+    | "mqttPassword"
+    | "mqttClientId"
+    | "mqttTlsRejectUnauthorized"
+    | "mqttTlsCa"
   >,
 ): IClientOptions {
   const options: IClientOptions = {
@@ -21,6 +25,12 @@ function buildClientOptions(
   if (config.mqttClientId) {
     options.clientId = config.mqttClientId;
   }
+  if (config.mqttTlsCa) {
+    options.ca = config.mqttTlsCa;
+  }
+  if (!config.mqttTlsRejectUnauthorized) {
+    options.rejectUnauthorized = false;
+  }
   return options;
 }
 
@@ -31,6 +41,8 @@ export function startMqttIngest(
     | "mqttUsername"
     | "mqttPassword"
     | "mqttClientId"
+    | "mqttTlsRejectUnauthorized"
+    | "mqttTlsCa"
     | "mqttTopics"
     | "deviceIdTopicRegex"
     | "deviceIdJsonKey"
@@ -38,6 +50,12 @@ export function startMqttIngest(
   >,
   requestFlush: () => void,
 ): MqttClient {
+  if (!config.mqttTlsRejectUnauthorized) {
+    console.warn(
+      "[mqtt] TLS certificate verification disabled (MQTT_TLS_INSECURE or MQTT_TLS_REJECT_UNAUTHORIZED=false)",
+    );
+  }
+
   const base = buildClientOptions(config);
 
   const client =

@@ -1,7 +1,37 @@
+import { readFileSync } from "node:fs";
+
 /** Opt-in TLS: `true`, `1`, `yes`, `on` (case-insensitive). */
 function mqttTlsEnvTruthy(raw: string | undefined): boolean {
   const v = raw?.trim().toLowerCase();
   return v === "true" || v === "1" || v === "yes" || v === "on";
+}
+
+/** Default verify server cert for MQTTS. */
+function resolveMqttTlsRejectUnauthorized(): boolean {
+  if (mqttTlsEnvTruthy(process.env.MQTT_TLS_INSECURE)) {
+    return false;
+  }
+  const rau = process.env.MQTT_TLS_REJECT_UNAUTHORIZED?.trim().toLowerCase();
+  if (
+    rau === "false" ||
+    rau === "0" ||
+    rau === "no" ||
+    rau === "off"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function resolveMqttTlsCaPem(): string | undefined {
+  const p = process.env.MQTT_TLS_CA_FILE?.trim();
+  if (!p) return undefined;
+  try {
+    return readFileSync(p, "utf8");
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`MQTT_TLS_CA_FILE (${p}): ${msg}`);
+  }
 }
 
 function requireEnv(name: string): string {
@@ -103,6 +133,10 @@ export type AppConfig = {
   mqttPassword?: string;
   /** Optional stable client id for the broker session. */
   mqttClientId?: string;
+  /** When false, MQTTS accepts self-signed / unknown CAs (insecure). */
+  mqttTlsRejectUnauthorized: boolean;
+  /** PEM bundle read from `MQTT_TLS_CA_FILE`, if set. */
+  mqttTlsCa?: string;
   mqttTopics: string[];
   httpPort: number;
   batchMax: number;
@@ -151,6 +185,8 @@ export function loadConfig(): AppConfig {
     mqttUsername,
     mqttPassword,
     mqttClientId,
+    mqttTlsRejectUnauthorized: resolveMqttTlsRejectUnauthorized(),
+    mqttTlsCa: resolveMqttTlsCaPem(),
     mqttTopics: topics,
     httpPort: Number(process.env.HTTP_PORT ?? 3000) || 3000,
     batchMax: Math.max(1, Number(process.env.BATCH_MAX ?? 100)),

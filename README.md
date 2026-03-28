@@ -124,6 +124,9 @@ flowchart LR
 | `MQTT_HOST` | yes* | Broker hostname (*required if neither `MQTT_URL` nor `MQTT_SERVERS` is set) |
 | `MQTT_PORT` | no | Broker port; default **1883** without TLS, **8883** when `MQTT_SSL` / `MQTT_TLS` is enabled |
 | `MQTT_SSL` / `MQTT_TLS` | no | Set to `true` / `1` / `yes` / `on` for **`mqtts`** (TLS); default is **off** (plain **`mqtt`**) |
+| `MQTT_TLS_CA_FILE` | no | Path to PEM CA bundle to trust for MQTTS (fixes private CA without disabling verification) |
+| `MQTT_TLS_INSECURE` | no | If `true` / `1` / `yes` / `on`, set **`rejectUnauthorized: false`** for MQTTS (**insecure**; dev only) |
+| `MQTT_TLS_REJECT_UNAUTHORIZED` | no | Set to `false` / `0` / `no` / `off` to skip TLS cert verification for MQTTS (same risk as `MQTT_TLS_INSECURE`) |
 | `MQTT_SERVERS` | no | JSON array of `{ "host", "port", "protocol"? }`; MQTT.js iterates on reconnect; **`MQTT_HOST` / `MQTT_PORT` ignored** when set |
 | `MQTT_URL` | no | Full broker URL; if set, **`MQTT_HOST` / `MQTT_PORT` / `MQTT_SSL` / `MQTT_SERVERS` are ignored** |
 | `MQTT_USERNAME` | no | MQTT username (pair with `MQTT_PASSWORD`; avoids userinfo in `MQTT_URL`) |
@@ -198,7 +201,8 @@ TEST_DATABASE_URL=postgres://user:pass@localhost:5432/maifar bun test
 |---------|------------------|
 | MQTT `ECONNREFUSED` / timeout | Host, port (`1883` vs `8883`), firewall, `mqtt://` vs `mqtts://` |
 | `Not authorized` / connection closed | `MQTT_USERNAME` / `MQTT_PASSWORD`, broker ACLs, or credentials in `MQTT_URL` |
-| TLS / certificate errors | Broker CA, or broker TLS config; Node/Bun trust store |
+| TLS / certificate errors | Install broker CA on the host, or set **`MQTT_TLS_CA_FILE`** to a PEM bundle; last resort **`MQTT_TLS_INSECURE=true`** (dev only) |
+| `SELF_SIGNED_CERT_IN_CHAIN` | Broker uses a cert not in Bun’s default trust store; prefer **`MQTT_TLS_CA_FILE`**, or **`MQTT_TLS_INSECURE=true`** only for testing |
 | `subscribe failed` | Broker ACLs for `MQTT_TOPICS` patterns |
 | `database: down` in `/health` | `DATABASE_URL`, Postgres listening, SSL mode if required |
 | No rows in `/messages` | Topic match, JSON payloads, flush interval, check `[mqtt]` / `[flush]` logs |

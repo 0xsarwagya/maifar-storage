@@ -13,6 +13,9 @@ const keys = [
   "MQTT_USERNAME",
   "MQTT_PASSWORD",
   "MQTT_CLIENT_ID",
+  "MQTT_TLS_INSECURE",
+  "MQTT_TLS_REJECT_UNAUTHORIZED",
+  "MQTT_TLS_CA_FILE",
   "MQTT_TOPICS",
   "HTTP_PORT",
   "BATCH_MAX",
@@ -48,6 +51,9 @@ describe("loadConfig", () => {
   function baseEnv() {
     prev = snapshotEnv();
     delete process.env.AUTO_MIGRATE;
+    delete process.env.MQTT_TLS_INSECURE;
+    delete process.env.MQTT_TLS_REJECT_UNAUTHORIZED;
+    delete process.env.MQTT_TLS_CA_FILE;
   }
 
   test("parses required env and defaults", () => {
@@ -78,6 +84,8 @@ describe("loadConfig", () => {
       "acme",
     );
     expect(c.deviceIdJsonKey).toBeUndefined();
+    expect(c.mqttTlsRejectUnauthorized).toBe(true);
+    expect(c.mqttTlsCa).toBeUndefined();
   });
 
   test("trims topics and optional json key", () => {
@@ -287,5 +295,43 @@ describe("loadConfig", () => {
 
     const c = loadConfig();
     expect(c.autoMigrate).toBe(false);
+  });
+
+  test("MQTT_TLS_INSECURE=true disables TLS verification flag", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.MQTT_TLS_INSECURE = "true";
+
+    const c = loadConfig();
+    expect(c.mqttTlsRejectUnauthorized).toBe(false);
+  });
+
+  test("MQTT_TLS_REJECT_UNAUTHORIZED=false disables verification", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.MQTT_TLS_REJECT_UNAUTHORIZED = "false";
+
+    const c = loadConfig();
+    expect(c.mqttTlsRejectUnauthorized).toBe(false);
+  });
+
+  test("throws when MQTT_TLS_CA_FILE is missing", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.MQTT_TLS_CA_FILE = "/nonexistent/maifar-ca-bundle.pem";
+
+    expect(() => loadConfig()).toThrow(/MQTT_TLS_CA_FILE/);
   });
 });
