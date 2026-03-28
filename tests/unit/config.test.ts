@@ -3,6 +3,7 @@ import { loadConfig } from "../../src/config";
 
 const keys = [
   "DATABASE_URL",
+  "AUTO_MIGRATE",
   "MQTT_URL",
   "MQTT_HOST",
   "MQTT_PORT",
@@ -43,8 +44,14 @@ describe("loadConfig", () => {
     restoreEnv(prev);
   });
 
-  test("parses required env and defaults", () => {
+  /** Default `AUTO_MIGRATE` is on; clear so parent shell env does not affect tests. */
+  function baseEnv() {
     prev = snapshotEnv();
+    delete process.env.AUTO_MIGRATE;
+  }
+
+  test("parses required env and defaults", () => {
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x/y";
     process.env.MQTT_URL = "mqtt://localhost:1883";
     delete process.env.MQTT_HOST;
@@ -60,6 +67,7 @@ describe("loadConfig", () => {
 
     const c = loadConfig();
     expect(c.databaseUrl).toBe("postgres://x/y");
+    expect(c.autoMigrate).toBe(true);
     expect(c.mqtt).toEqual({ kind: "url", url: "mqtt://localhost:1883" });
     expect(c.mqttTopics).toEqual(["a/b", "#"]);
     expect(c.httpPort).toBe(3000);
@@ -73,7 +81,7 @@ describe("loadConfig", () => {
   });
 
   test("trims topics and optional json key", () => {
-    prev = snapshotEnv();
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     process.env.MQTT_URL = "mqtt://h";
     delete process.env.MQTT_HOST;
@@ -87,7 +95,7 @@ describe("loadConfig", () => {
   });
 
   test("throws when MQTT_TOPICS empty after split", () => {
-    prev = snapshotEnv();
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     process.env.MQTT_URL = "mqtt://h";
     delete process.env.MQTT_HOST;
@@ -98,7 +106,7 @@ describe("loadConfig", () => {
   });
 
   test("throws on invalid DEVICE_ID_TOPIC_REGEX", () => {
-    prev = snapshotEnv();
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     process.env.MQTT_URL = "mqtt://h";
     delete process.env.MQTT_HOST;
@@ -110,7 +118,7 @@ describe("loadConfig", () => {
   });
 
   test("respects numeric overrides and floors", () => {
-    prev = snapshotEnv();
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     process.env.MQTT_URL = "mqtt://h";
     delete process.env.MQTT_HOST;
@@ -127,7 +135,7 @@ describe("loadConfig", () => {
   });
 
   test("MQTT_USERNAME and MQTT_PASSWORD for broker auth", () => {
-    prev = snapshotEnv();
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     process.env.MQTT_URL = "mqtts://mqtt.example.com:8883";
     delete process.env.MQTT_HOST;
@@ -144,7 +152,7 @@ describe("loadConfig", () => {
   });
 
   test("MQTT auth omitted when MQTT_USERNAME empty", () => {
-    prev = snapshotEnv();
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     process.env.MQTT_URL = "mqtt://h";
     delete process.env.MQTT_HOST;
@@ -160,8 +168,8 @@ describe("loadConfig", () => {
     expect(c.mqttClientId).toBe("maifar-storage-1");
   });
 
-  test("uses mqtts servers from MQTT_HOST and MQTT_PORT defaults", () => {
-    prev = snapshotEnv();
+  test("defaults to plain mqtt on port 1883 when TLS flags unset", () => {
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     delete process.env.MQTT_URL;
     delete process.env.MQTT_SERVERS;
@@ -174,31 +182,32 @@ describe("loadConfig", () => {
     const c = loadConfig();
     expect(c.mqtt).toEqual({
       kind: "servers",
-      protocol: "mqtts",
-      servers: [{ host: "mqtt.example.com", port: 8883, protocol: "mqtts" }],
+      protocol: "mqtt",
+      servers: [{ host: "mqtt.example.com", port: 1883, protocol: "mqtt" }],
     });
   });
 
-  test("MQTT_SSL=false uses mqtt and port 1883 by default", () => {
-    prev = snapshotEnv();
+  test("MQTT_SSL=true uses mqtts and port 8883 by default", () => {
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     delete process.env.MQTT_URL;
     delete process.env.MQTT_SERVERS;
     process.env.MQTT_HOST = "localhost";
     delete process.env.MQTT_PORT;
-    process.env.MQTT_SSL = "false";
+    process.env.MQTT_SSL = "true";
+    delete process.env.MQTT_TLS;
     process.env.MQTT_TOPICS = "#";
 
     const c = loadConfig();
     expect(c.mqtt).toEqual({
       kind: "servers",
-      protocol: "mqtt",
-      servers: [{ host: "localhost", port: 1883, protocol: "mqtt" }],
+      protocol: "mqtts",
+      servers: [{ host: "localhost", port: 8883, protocol: "mqtts" }],
     });
   });
 
   test("MQTT_SERVERS JSON without MQTT_HOST", () => {
-    prev = snapshotEnv();
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     delete process.env.MQTT_URL;
     delete process.env.MQTT_HOST;
@@ -213,7 +222,7 @@ describe("loadConfig", () => {
     const c = loadConfig();
     expect(c.mqtt).toEqual({
       kind: "servers",
-      protocol: "mqtts",
+      protocol: "mqtt",
       servers: [
         { host: "a.example.com", port: 8883 },
         { host: "b.example.com", port: 8883, protocol: "mqtts" },
@@ -222,7 +231,7 @@ describe("loadConfig", () => {
   });
 
   test("MQTT_URL wins when MQTT_HOST and MQTT_SERVERS are also set", () => {
-    prev = snapshotEnv();
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     process.env.MQTT_URL = "mqtt://from-url:1883";
     process.env.MQTT_HOST = "ignored";
@@ -234,7 +243,7 @@ describe("loadConfig", () => {
   });
 
   test("throws when MQTT_HOST is only whitespace", () => {
-    prev = snapshotEnv();
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     delete process.env.MQTT_URL;
     delete process.env.MQTT_SERVERS;
@@ -245,7 +254,7 @@ describe("loadConfig", () => {
   });
 
   test("throws when MQTT_URL and MQTT_HOST both missing and no MQTT_SERVERS", () => {
-    prev = snapshotEnv();
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     delete process.env.MQTT_URL;
     delete process.env.MQTT_HOST;
@@ -256,7 +265,7 @@ describe("loadConfig", () => {
   });
 
   test("throws on invalid MQTT_PORT", () => {
-    prev = snapshotEnv();
+    baseEnv();
     process.env.DATABASE_URL = "postgres://x";
     delete process.env.MQTT_URL;
     delete process.env.MQTT_SERVERS;
@@ -265,5 +274,18 @@ describe("loadConfig", () => {
     process.env.MQTT_TOPICS = "#";
 
     expect(() => loadConfig()).toThrow(/MQTT_PORT/);
+  });
+
+  test("AUTO_MIGRATE false disables auto-migrate flag", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.AUTO_MIGRATE = "false";
+
+    const c = loadConfig();
+    expect(c.autoMigrate).toBe(false);
   });
 });

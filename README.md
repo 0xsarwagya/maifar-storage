@@ -2,7 +2,7 @@
 
 Service ( **[Bun](https://bun.sh)** + TypeScript ) that subscribes to an MQTT broker, accepts **JSON** payloads only, batches rows in memory, flushes them to **PostgreSQL** in multi-row inserts, and exposes a read-only **HTTP** API (JSON listing, CSV / NDJSON export, OpenAPI, Swagger UI, Scalar, ReDoc).
 
-**Default broker host:** `mqtt.maifar.actimi.com` (see **`MQTT_HOST`** / **`MQTT_PORT`** in [`.env.example`](.env.example)).
+**Default broker host:** `mqtt.maifar.actimi.com` (see **`MQTT_HOST`** / **`MQTT_PORT`** / **`MQTT_SSL`** in [`.env.example`](.env.example)).
 
 ## Table of contents
 
@@ -47,13 +47,14 @@ flowchart LR
 
 - [Bun](https://bun.sh) 1.x
 - PostgreSQL 14+ (`jsonb`)
-- MQTT broker; `.env.example` uses **`MQTT_HOST=mqtt.maifar.actimi.com`** and **`MQTT_PORT=8883`** (TLS / `mqtts` by default). Local Mosquitto via Docker Compose is optional for development.
+- MQTT broker; `.env.example` uses plain **`mqtt` on 1883** by default. Set **`MQTT_SSL=true`** (or **`MQTT_TLS=true`**) for **`mqtts`** and default port **8883**. Local Mosquitto via Docker Compose is optional for development.
 
 ## Repository layout
 
 | Path | Role |
 |------|------|
-| [`src/index.ts`](src/index.ts) | Process entry: `createApp()`, signals, logs |
+| [`src/index.ts`](src/index.ts) | Process entry: optional migrate, `createApp()`, signals |
+| [`src/schema-migrate.ts`](src/schema-migrate.ts) | Apply `schema.sql` (shared with CLI migrate) |
 | [`src/app.ts`](src/app.ts) | Wires DB, flush worker, MQTT, HTTP |
 | [`src/mqtt-ingest.ts`](src/mqtt-ingest.ts) | MQTT connect, subscribe, enqueue |
 | [`src/flush-worker.ts`](src/flush-worker.ts) | Batched insert + retry |
@@ -75,7 +76,7 @@ flowchart LR
    cp .env.example .env
    ```
 
-   Edit `.env`: set `DATABASE_URL`, **`MQTT_HOST`** + **`MQTT_PORT`** (or `MQTT_URL`), and **`MQTT_TOPICS`** for your broker and ACLs.
+   Edit `.env`: set `DATABASE_URL`, **`MQTT_HOST`** + **`MQTT_PORT`**, **`MQTT_SSL=true`** if the broker uses MQTTS (or use `MQTT_URL`), and **`MQTT_TOPICS`** for your broker and ACLs.
 
 2. **Dependencies**
 
@@ -86,6 +87,8 @@ flowchart LR
 3. **Postgres** (local example: `docker compose up -d` for [`docker-compose.yml`](docker-compose.yml))
 
 4. **Schema**
+
+   On **`bun run dev`** / **`bun run start`**, **`schema.sql`** is applied automatically by default (`AUTO_MIGRATE`, see [Environment variables](#environment-variables)). You can still run it manually:
 
    ```bash
    bun run db:migrate
@@ -117,9 +120,10 @@ flowchart LR
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | yes | PostgreSQL connection URL |
+| `AUTO_MIGRATE` | no | If not `false` / `0` / `no` / `off`, apply `schema.sql` once at process startup before MQTT/HTTP (default **on**) |
 | `MQTT_HOST` | yes* | Broker hostname (*required if neither `MQTT_URL` nor `MQTT_SERVERS` is set) |
-| `MQTT_PORT` | no | Broker port; default **8883** with TLS, **1883** when `MQTT_SSL=false` |
-| `MQTT_SSL` / `MQTT_TLS` | no | Set to `false` for plain `mqtt` (defaults to secured `mqtts`) |
+| `MQTT_PORT` | no | Broker port; default **1883** without TLS, **8883** when `MQTT_SSL` / `MQTT_TLS` is enabled |
+| `MQTT_SSL` / `MQTT_TLS` | no | Set to `true` / `1` / `yes` / `on` for **`mqtts`** (TLS); default is **off** (plain **`mqtt`**) |
 | `MQTT_SERVERS` | no | JSON array of `{ "host", "port", "protocol"? }`; MQTT.js iterates on reconnect; **`MQTT_HOST` / `MQTT_PORT` ignored** when set |
 | `MQTT_URL` | no | Full broker URL; if set, **`MQTT_HOST` / `MQTT_PORT` / `MQTT_SSL` / `MQTT_SERVERS` are ignored** |
 | `MQTT_USERNAME` | no | MQTT username (pair with `MQTT_PASSWORD`; avoids userinfo in `MQTT_URL`) |
@@ -131,11 +135,12 @@ flowchart LR
 | `FLUSH_INTERVAL_MS` | no | Timer flush interval ms (default `1000`, minimum `50`) |
 | `DEVICE_ID_TOPIC_REGEX` | no | Regex with capture group 1 = device id (default `^devices/([^/]+)/`) |
 | `DEVICE_ID_JSON_KEY` | no | JSON object key for device id when regex does not match |
+| `DISPLAY_TIMEZONE` | no | Default IANA timezone for `/devices` `*_local` fields when `timezone` query is omitted; falls back to `TZ`, then UTC |
 | `TEST_DATABASE_URL` | tests only | Same shape as `DATABASE_URL`; enables integration + DB smoke tests |
 
 Non-JSON MQTT bodies are **skipped** (logged). Only successfully parsed JSON is stored as `jsonb`.
 
-**MQTT connection:** Use **`MQTT_URL`**, or **`MQTT_SERVERS`** (JSON array, same shape as [MQTT.js `servers`](https://github.com/mqttjs/MQTT.js#client)), or **`MQTT_HOST`** with optional **`MQTT_PORT`**. For host/port, the client uses **`mqtts`** on port **8883** by default, or **`mqtt`** on **1883** when **`MQTT_SSL=false`** — without synthesizing a URL string; options are passed as `protocol` + `servers`.
+**MQTT connection:** Use **`MQTT_URL`**, or **`MQTT_SERVERS`**, or **`MQTT_HOST`** with optional **`MQTT_PORT`**. Without TLS flags, the client uses plain **`mqtt`** on port **1883** by default. Set **`MQTT_SSL=true`** or **`MQTT_TLS=true`** for **`mqtts`** and default port **8883**. Options are passed as `protocol` + `servers` (no synthetic URL for the host/port path).
 
 **MQTT authentication:** Use **`MQTT_USERNAME`** and **`MQTT_PASSWORD`** (with host/port or a host-only `MQTT_URL`). You can still put `user:pass` inside `MQTT_URL` if that fits your deployment.
 
@@ -152,6 +157,7 @@ All data routes are **GET**.
 | Route | Summary |
 |-------|---------|
 | `/health` | `ok`, `database` (`up` / `down`), `queue_depth` |
+| `/devices` | Optional `timezone` (IANA). JSON: per-`device_id` `message_count`, `first_received_at` / `last_received_at` (ISO UTC), `*_local` (formatted in that timezone), plus `messages_without_device_id` |
 | `/messages` | Query: `from`, `to`, `device_id`, `topic_prefix`, `limit`, `cursor` → `{ items, next_cursor }` |
 | `/export.csv` | Same filters; streamed CSV; `payload` cell is JSON text |
 | `/export.json` | Same filters; streamed NDJSON |

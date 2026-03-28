@@ -1,3 +1,9 @@
+/** Opt-in TLS: `true`, `1`, `yes`, `on` (case-insensitive). */
+function mqttTlsEnvTruthy(raw: string | undefined): boolean {
+  const v = raw?.trim().toLowerCase();
+  return v === "true" || v === "1" || v === "yes" || v === "on";
+}
+
 function requireEnv(name: string): string {
   const v = process.env[name];
   if (v === undefined || v === "") {
@@ -56,10 +62,11 @@ function resolveMqttConnection(): MqttConnectionConfig {
     return { kind: "url", url: fromUrl };
   }
 
-  const tlsOff =
-    process.env.MQTT_SSL === "false" || process.env.MQTT_TLS === "false";
-  const defaultProtocol = tlsOff ? "mqtt" : "mqtts";
-  const defaultPort = tlsOff ? 1883 : 8883;
+  const tlsOn =
+    mqttTlsEnvTruthy(process.env.MQTT_SSL) ||
+    mqttTlsEnvTruthy(process.env.MQTT_TLS);
+  const defaultProtocol = tlsOn ? "mqtts" : "mqtt";
+  const defaultPort = tlsOn ? 8883 : 1883;
 
   const serversJson = process.env.MQTT_SERVERS?.trim();
   if (serversJson) {
@@ -88,6 +95,8 @@ function resolveMqttConnection(): MqttConnectionConfig {
 
 export type AppConfig = {
   databaseUrl: string;
+  /** When true, `src/index.ts` applies `schema.sql` before serving (idempotent). */
+  autoMigrate: boolean;
   mqtt: MqttConnectionConfig;
   /** When set, sent as MQTT `username` / `password` (avoids putting secrets in `MQTT_URL`). */
   mqttUsername?: string;
@@ -128,8 +137,16 @@ export function loadConfig(): AppConfig {
     mqttUsername !== undefined ? (process.env.MQTT_PASSWORD ?? "") : undefined;
   const mqttClientId = process.env.MQTT_CLIENT_ID?.trim() || undefined;
 
+  const autoMigrateRaw = process.env.AUTO_MIGRATE?.trim().toLowerCase();
+  const autoMigrate =
+    autoMigrateRaw !== "false" &&
+    autoMigrateRaw !== "0" &&
+    autoMigrateRaw !== "no" &&
+    autoMigrateRaw !== "off";
+
   return {
     databaseUrl: requireEnv("DATABASE_URL"),
+    autoMigrate,
     mqtt: resolveMqttConnection(),
     mqttUsername,
     mqttPassword,
