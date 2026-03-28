@@ -1,4 +1,4 @@
-import mqtt, { type MqttClient } from "mqtt";
+import mqtt, { type IClientOptions, type MqttClient } from "mqtt";
 import type { AppConfig } from "./config";
 import { extractDeviceId } from "./device-id";
 import * as queue from "./queue";
@@ -7,14 +7,30 @@ import type { QueuedRow } from "./types";
 export function startMqttIngest(
   config: Pick<
     AppConfig,
-    "mqttUrl" | "mqttTopics" | "deviceIdTopicRegex" | "deviceIdJsonKey" | "batchMax"
+    | "mqttUrl"
+    | "mqttUsername"
+    | "mqttPassword"
+    | "mqttClientId"
+    | "mqttTopics"
+    | "deviceIdTopicRegex"
+    | "deviceIdJsonKey"
+    | "batchMax"
   >,
   requestFlush: () => void,
 ): MqttClient {
-  const client = mqtt.connect(config.mqttUrl, {
+  const options: IClientOptions = {
     reconnectPeriod: 5000,
     connectTimeout: 30_000,
-  });
+  };
+  if (config.mqttUsername !== undefined) {
+    options.username = config.mqttUsername;
+    options.password = config.mqttPassword ?? "";
+  }
+  if (config.mqttClientId) {
+    options.clientId = config.mqttClientId;
+  }
+
+  const client = mqtt.connect(config.mqttUrl, options);
 
   client.on("connect", () => {
     console.log("[mqtt] connected");

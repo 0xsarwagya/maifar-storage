@@ -117,7 +117,10 @@ flowchart LR
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | yes | PostgreSQL connection URL |
-| `MQTT_URL` | yes | e.g. `mqtts://mqtt.maifar.actimi.com:8883` or `mqtts://user:pass@mqtt.maifar.actimi.com:8883` |
+| `MQTT_URL` | yes | Broker URL, e.g. `mqtts://mqtt.maifar.actimi.com:8883` (host only if using `MQTT_USERNAME` / `MQTT_PASSWORD`) |
+| `MQTT_USERNAME` | no | If set (non-empty), sent as the MQTT username; use with `MQTT_PASSWORD` instead of embedding credentials in `MQTT_URL` |
+| `MQTT_PASSWORD` | no | MQTT password when `MQTT_USERNAME` is set; defaults to empty string if unset |
+| `MQTT_CLIENT_ID` | no | Optional fixed MQTT client id (otherwise generated) |
 | `MQTT_TOPICS` | yes | Comma-separated subscribe patterns (`+`, `#` per MQTT rules) |
 | `HTTP_PORT` | no | Default `3000` |
 | `BATCH_MAX` | no | Rows per flush (default `100`) |
@@ -127,6 +130,8 @@ flowchart LR
 | `TEST_DATABASE_URL` | tests only | Same shape as `DATABASE_URL`; enables integration + DB smoke tests |
 
 Non-JSON MQTT bodies are **skipped** (logged). Only successfully parsed JSON is stored as `jsonb`.
+
+**MQTT authentication:** Prefer `MQTT_URL` without userinfo plus `MQTT_USERNAME` and `MQTT_PASSWORD` so secrets are not URL-encoded in one string. You can still use `mqtts://user:pass@host:8883` if your broker and passwords fit safely in a URL.
 
 ## Data path and queue
 
@@ -180,6 +185,7 @@ TEST_DATABASE_URL=postgres://user:pass@localhost:5432/maifar bun test
 | Symptom | Things to check |
 |---------|------------------|
 | MQTT `ECONNREFUSED` / timeout | Host, port (`1883` vs `8883`), firewall, `mqtt://` vs `mqtts://` |
+| `Not authorized` / connection closed | `MQTT_USERNAME` / `MQTT_PASSWORD`, broker ACLs, or credentials in `MQTT_URL` |
 | TLS / certificate errors | Broker CA, or broker TLS config; Node/Bun trust store |
 | `subscribe failed` | Broker ACLs for `MQTT_TOPICS` patterns |
 | `database: down` in `/health` | `DATABASE_URL`, Postgres listening, SSL mode if required |

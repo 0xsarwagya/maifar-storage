@@ -9,6 +9,11 @@ function requireEnv(name: string): string {
 export type AppConfig = {
   databaseUrl: string;
   mqttUrl: string;
+  /** When set, sent as MQTT `username` / `password` (avoids putting secrets in `MQTT_URL`). */
+  mqttUsername?: string;
+  mqttPassword?: string;
+  /** Optional stable client id for the broker session. */
+  mqttClientId?: string;
   mqttTopics: string[];
   httpPort: number;
   batchMax: number;
@@ -36,9 +41,19 @@ export function loadConfig(): AppConfig {
   }
 
   const jsonKey = process.env.DEVICE_ID_JSON_KEY?.trim();
+  const mqttUsernameRaw = process.env.MQTT_USERNAME?.trim();
+  const mqttUsername =
+    mqttUsernameRaw && mqttUsernameRaw.length > 0 ? mqttUsernameRaw : undefined;
+  const mqttPassword =
+    mqttUsername !== undefined ? (process.env.MQTT_PASSWORD ?? "") : undefined;
+  const mqttClientId = process.env.MQTT_CLIENT_ID?.trim() || undefined;
+
   return {
     databaseUrl: requireEnv("DATABASE_URL"),
     mqttUrl: requireEnv("MQTT_URL"),
+    mqttUsername,
+    mqttPassword,
+    mqttClientId,
     mqttTopics: topics,
     httpPort: Number(process.env.HTTP_PORT ?? 3000) || 3000,
     batchMax: Math.max(1, Number(process.env.BATCH_MAX ?? 100)),
