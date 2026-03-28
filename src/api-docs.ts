@@ -40,8 +40,9 @@ function swaggerUiHtml(): Response {
 <script src="${SWAGGER_UI_BUNDLE}" crossorigin="anonymous"></script>
 <script>
   window.onload = function () {
+    var specUrl = new URL("/openapi.json", window.location.href).href;
     window.ui = SwaggerUIBundle({
-      url: "/openapi.json",
+      url: specUrl,
       dom_id: "#swagger-ui",
       deepLinking: true,
       persistAuthorization: true,
@@ -54,10 +55,13 @@ function swaggerUiHtml(): Response {
 function scalarHtml(): Response {
   return htmlPage(
     "API docs — Scalar",
-    `<script
-  id="api-reference"
-  data-url="/openapi.json"
-></script>
+    `<script id="api-reference"></script>
+<script>
+  (function () {
+    var el = document.getElementById("api-reference");
+    el.setAttribute("data-url", new URL("/openapi.json", window.location.href).href);
+  })();
+</script>
 <script src="${SCALAR_STANDALONE}" crossorigin="anonymous"></script>`,
   );
 }
@@ -65,7 +69,13 @@ function scalarHtml(): Response {
 function redocHtml(): Response {
   return htmlPage(
     "API docs — ReDoc",
-    `<redoc spec-url="/openapi.json"></redoc>
+    `<redoc id="redoc-el"></redoc>
+<script>
+  document.getElementById("redoc-el").setAttribute(
+    "spec-url",
+    new URL("/openapi.json", window.location.href).href,
+  );
+</script>
 <script src="${REDOC_SCRIPT}" crossorigin="anonymous"></script>`,
   );
 }

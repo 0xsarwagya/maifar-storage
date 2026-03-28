@@ -61,6 +61,7 @@ flowchart LR
 | [`src/queue.ts`](src/queue.ts) | In-memory buffer |
 | [`src/api.ts`](src/api.ts) | REST handlers |
 | [`src/api-docs.ts`](src/api-docs.ts) + [`src/openapi-spec.ts`](src/openapi-spec.ts) | OpenAPI + doc shells |
+| [`src/cors.ts`](src/cors.ts) | CORS headers + `OPTIONS` preflight |
 | [`src/config.ts`](src/config.ts) | Environment |
 | [`src/db.ts`](src/db.ts) | `postgres` client |
 | [`src/pg-tls.ts`](src/pg-tls.ts) | Optional Postgres `ssl` options from env |
@@ -143,6 +144,7 @@ flowchart LR
 | `DEVICE_ID_TOPIC_REGEX` | no | Regex with capture group 1 = device id (default `^devices/([^/]+)/`) |
 | `DEVICE_ID_JSON_KEY` | no | JSON object key for device id when regex does not match |
 | `DISPLAY_TIMEZONE` | no | Default IANA timezone for `/devices` `*_local` fields when `timezone` query is omitted; falls back to `TZ`, then UTC |
+| `CORS_ORIGIN` | no | `Access-Control-Allow-Origin` for all HTTP responses (default **`*`**). Set to your SPA origin if you do not want `*` |
 | `TEST_DATABASE_URL` | tests only | Same shape as `DATABASE_URL`; enables integration + DB smoke tests |
 
 Non-JSON MQTT bodies are **skipped** (logged). Only successfully parsed JSON is stored as `jsonb`.
@@ -180,7 +182,7 @@ Invalid query parameters return **400** with `{ "error": "..." }`.
 | `/scalar` | Scalar (CDN) |
 | `/redoc` | ReDoc (CDN) |
 
-Browsers need access to those CDNs to render UIs.
+Browsers need access to those CDNs to render UIs. All JSON/HTML responses include **CORS** headers (`Access-Control-Allow-Origin` defaults to `*`; override with **`CORS_ORIGIN`**). Doc pages load `/openapi.json` using an **absolute `http(s)` URL** so Swagger / Scalar / ReDoc avoid invalid relative fetch errors.
 
 ## Testing
 

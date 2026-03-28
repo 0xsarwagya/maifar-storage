@@ -1,4 +1,5 @@
 import { tryServeApiDocs } from "./api-docs";
+import { corsPreflightResponse, withCors } from "./cors";
 import type { Sql } from "./db";
 import {
   csvEscapeCell,
@@ -92,16 +93,20 @@ function parseListFilters(url: URL): ListFilters | Response {
 
 export function createFetchHandler(sql: Sql, getQueueDepth: () => number) {
   return async function fetch(req: Request): Promise<Response> {
+    if (req.method === "OPTIONS") {
+      return corsPreflightResponse(req);
+    }
+
     if (req.method === "GET") {
       const docs = tryServeApiDocs(req);
-      if (docs) return docs;
+      if (docs) return withCors(req, docs);
     }
 
     const url = new URL(req.url);
     const path = url.pathname;
 
     if (req.method !== "GET") {
-      return new Response("Method Not Allowed", { status: 405 });
+      return withCors(req, new Response("Method Not Allowed", { status: 405 }));
     }
 
     if (path === "/health") {
@@ -112,16 +117,19 @@ export function createFetchHandler(sql: Sql, getQueueDepth: () => number) {
       } catch {
         /* leave down */
       }
-      return Response.json({
-        ok: true,
-        database,
-        queue_depth: getQueueDepth(),
-      });
+      return withCors(
+        req,
+        Response.json({
+          ok: true,
+          database,
+          queue_depth: getQueueDepth(),
+        }),
+      );
     }
 
     if (path === "/devices") {
       const tz = resolveDisplayTimeZone(url.searchParams.get("timezone"));
-      if (!tz.ok) return badRequest(tz.message);
+      if (!tz.ok) return withCors(req, badRequest(tz.message));
 
       type NullCountRow = { n: bigint };
       const [rows, nullRows] = await Promise.all([
@@ -148,38 +156,41 @@ export function createFetchHandler(sql: Sql, getQueueDepth: () => number) {
       const summary = rows as unknown as DeviceSummaryRow[];
       const withoutId = (nullRows as unknown as NullCountRow[])[0]?.n ?? 0n;
 
-      return Response.json({
-        timezone: tz.value,
-        messages_without_device_id: withoutId.toString(),
-        items: summary.map((r) => ({
-          device_id: r.device_id,
-          message_count: r.message_count.toString(),
-          first_received_at: r.first_received_at.toISOString(),
-          last_received_at: r.last_received_at.toISOString(),
-          first_received_at_local: formatInstantInTimeZone(
-            r.first_received_at,
-            tz.value,
-          ),
-          last_received_at_local: formatInstantInTimeZone(
-            r.last_received_at,
-            tz.value,
-          ),
-        })),
-      });
+      return withCors(
+        req,
+        Response.json({
+          timezone: tz.value,
+          messages_without_device_id: withoutId.toString(),
+          items: summary.map((r) => ({
+            device_id: r.device_id,
+            message_count: r.message_count.toString(),
+            first_received_at: r.first_received_at.toISOString(),
+            last_received_at: r.last_received_at.toISOString(),
+            first_received_at_local: formatInstantInTimeZone(
+              r.first_received_at,
+              tz.value,
+            ),
+            last_received_at_local: formatInstantInTimeZone(
+              r.last_received_at,
+              tz.value,
+            ),
+          })),
+        }),
+      );
     }
 
     if (path === "/messages") {
       const filters = parseListFilters(url);
-      if (filters instanceof Response) return filters;
+      if (filters instanceof Response) return withCors(req, filters);
 
       const limit = parseLimit(url.searchParams.get("limit"));
-      if (!limit.ok) return badRequest(limit.message);
+      if (!limit.ok) return withCors(req, badRequest(limit.message));
 
       const cursorRaw = url.searchParams.get("cursor");
       let cursor: CursorPayload | undefined;
       if (cursorRaw) {
         const c = decodeCursor(cursorRaw);
-        if (!c.ok) return badRequest(c.message);
+        if (!c.ok) return withCors(req, badRequest(c.message));
         cursor = c.value;
       }
 
@@ -195,15 +206,18 @@ export function createFetchHandler(sql: Sql, getQueueDepth: () => number) {
             })
           : null;
 
-      return Response.json({
-        items: items.map(rowToApi),
-        next_cursor,
-      });
+      return withCors(
+        req,
+        Response.json({
+          items: items.map(rowToApi),
+          next_cursor,
+        }),
+      );
     }
 
     if (path === "/export.csv" || path === "/export.json") {
       const filters = parseListFilters(url);
-      if (filters instanceof Response) return filters;
+      if (filters instanceof Response) return withCors(req, filters);
 
       const ndjson = path === "/export.json";
       const encoder = new TextEncoder();
@@ -279,9 +293,9 @@ export function createFetchHandler(sql: Sql, getQueueDepth: () => number) {
           'attachment; filename="messages.csv"';
       }
 
-      return new Response(stream, { headers });
+      return withCors(req, new Response(stream, { headers }));
     }
 
-    return new Response("Not Found", { status: 404 });
+    return withCors(req, new Response("Not Found", { status: 404 }));
   };
 }

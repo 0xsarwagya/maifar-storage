@@ -3,12 +3,22 @@ import type { Sql } from "../../src/db";
 import { createFetchHandler } from "../../src/api";
 
 describe("createFetchHandler", () => {
+  test("OPTIONS /health returns 204 with CORS", async () => {
+    const handler = createFetchHandler(null as unknown as Sql, () => 0);
+    const res = await handler(
+      new Request("http://localhost/health", { method: "OPTIONS" }),
+    );
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Allow-Methods")).toContain("GET");
+  });
+
   test("405 for non-GET", async () => {
     const handler = createFetchHandler(null as unknown as Sql, () => 0);
     const res = await handler(
       new Request("http://localhost/health", { method: "POST" }),
     );
     expect(res.status).toBe(405);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
   });
 
   test("404 for unknown path", async () => {
@@ -28,6 +38,7 @@ describe("createFetchHandler", () => {
 
     const handler = createFetchHandler(brokenSql, () => 7);
     const res = await handler(new Request("http://localhost/health"));
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       database: string;
