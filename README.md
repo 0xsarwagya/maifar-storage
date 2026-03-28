@@ -207,6 +207,7 @@ TEST_DATABASE_URL=postgres://user:pass@localhost:5432/maifar bun test
 | `Not authorized` / connection closed | `MQTT_USERNAME` / `MQTT_PASSWORD`, broker ACLs, or credentials in `MQTT_URL` |
 | TLS / certificate errors | Install broker CA on the host, or set **`MQTT_TLS_CA_FILE`** to a PEM bundle; last resort **`MQTT_TLS_INSECURE=true`** (dev only) |
 | `SELF_SIGNED_CERT_IN_CHAIN` on startup | Often **Postgres** during **`AUTO_MIGRATE`** (runs before MQTT). Set **`DATABASE_TLS_INSECURE=true`** or **`DATABASE_TLS_CA_FILE`**. If it happens after connect, check **`MQTT_TLS_*`** for the broker |
+| `unrecognized configuration parameter "sslrootcert"` | Hosted **`DATABASE_URL`** often includes `sslrootcert=…`; **`postgres.js`** used to forward that to the server. The app strips **`sslrootcert` / `sslcert` / `sslkey` / `sslcrl`** from the URL before connecting — pull latest; use **`DATABASE_TLS_CA_FILE`** if you need a custom CA |
 | `subscribe failed` | Broker ACLs for `MQTT_TOPICS` patterns |
 | `database: down` in `/health` | `DATABASE_URL`, Postgres listening, SSL mode if required |
 | No rows in `/messages` | Topic match, JSON payloads, flush interval, check `[mqtt]` / `[flush]` logs |
