@@ -6,6 +6,28 @@ function requireEnv(name: string): string {
   return v;
 }
 
+function resolveMqttUrl(): string {
+  const fromUrl = process.env.MQTT_URL?.trim();
+  if (fromUrl) return fromUrl;
+
+  const host = requireEnv("MQTT_HOST").trim();
+  if (!host) {
+    throw new Error(
+      "MQTT_HOST cannot be empty or whitespace when MQTT_URL is unset",
+    );
+  }
+  const tlsOff =
+    process.env.MQTT_SSL === "false" || process.env.MQTT_TLS === "false";
+  const scheme = tlsOff ? "mqtt" : "mqtts";
+  const defaultPort = tlsOff ? 1883 : 8883;
+  const portRaw = process.env.MQTT_PORT?.trim();
+  const port = portRaw ? Number(portRaw) : defaultPort;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error("MQTT_PORT must be an integer from 1 to 65535");
+  }
+  return `${scheme}://${host}:${port}`;
+}
+
 export type AppConfig = {
   databaseUrl: string;
   mqttUrl: string;
@@ -50,7 +72,7 @@ export function loadConfig(): AppConfig {
 
   return {
     databaseUrl: requireEnv("DATABASE_URL"),
-    mqttUrl: requireEnv("MQTT_URL"),
+    mqttUrl: resolveMqttUrl(),
     mqttUsername,
     mqttPassword,
     mqttClientId,

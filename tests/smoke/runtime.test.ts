@@ -16,6 +16,8 @@ describe.skipIf(!hasTestDatabase)("smoke: server + health", () => {
     const prev = snapshotEnv();
     process.env.DATABASE_URL = process.env.TEST_DATABASE_URL!;
     process.env.MQTT_URL = "mqtt://127.0.0.1:1";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_PORT;
     process.env.MQTT_TOPICS = "#";
     process.env.BATCH_MAX = "10";
     process.env.FLUSH_INTERVAL_MS = "60000";

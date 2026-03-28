@@ -119,6 +119,8 @@ describe.skipIf(!hasTestDatabase)("integration: Postgres + HTTP + MQTT", () => {
     const prev = snapshotEnv();
     process.env.DATABASE_URL = process.env.TEST_DATABASE_URL!;
     process.env.MQTT_URL = broker.mqttUrl;
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_PORT;
     process.env.MQTT_TOPICS = "devices/+/telemetry";
     process.env.BATCH_MAX = "100";
     process.env.FLUSH_INTERVAL_MS = "60000";

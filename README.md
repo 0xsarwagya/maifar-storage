@@ -2,7 +2,7 @@
 
 Service ( **[Bun](https://bun.sh)** + TypeScript ) that subscribes to an MQTT broker, accepts **JSON** payloads only, batches rows in memory, flushes them to **PostgreSQL** in multi-row inserts, and exposes a read-only **HTTP** API (JSON listing, CSV / NDJSON export, OpenAPI, Swagger UI, Scalar, ReDoc).
 
-**Default broker host:** `mqtt.maifar.actimi.com` (see `MQTT_URL` in [`.env.example`](.env.example)).
+**Default broker host:** `mqtt.maifar.actimi.com` (see **`MQTT_HOST`** / **`MQTT_PORT`** in [`.env.example`](.env.example)).
 
 ## Table of contents
 
@@ -47,7 +47,7 @@ flowchart LR
 
 - [Bun](https://bun.sh) 1.x
 - PostgreSQL 14+ (`jsonb`)
-- MQTT broker; production default in `.env.example` is **`mqtt.maifar.actimi.com`** (`mqtts`, port `8883`). Local Mosquitto via Docker Compose is optional for development.
+- MQTT broker; `.env.example` uses **`MQTT_HOST=mqtt.maifar.actimi.com`** and **`MQTT_PORT=8883`** (TLS / `mqtts` by default). Local Mosquitto via Docker Compose is optional for development.
 
 ## Repository layout
 
@@ -75,7 +75,7 @@ flowchart LR
    cp .env.example .env
    ```
 
-   Edit `.env`: set `DATABASE_URL`, confirm `MQTT_URL` / `MQTT_TOPICS` for your broker and ACLs.
+   Edit `.env`: set `DATABASE_URL`, **`MQTT_HOST`** + **`MQTT_PORT`** (or `MQTT_URL`), and **`MQTT_TOPICS`** for your broker and ACLs.
 
 2. **Dependencies**
 
@@ -117,8 +117,11 @@ flowchart LR
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | yes | PostgreSQL connection URL |
-| `MQTT_URL` | yes | Broker URL, e.g. `mqtts://mqtt.maifar.actimi.com:8883` (host only if using `MQTT_USERNAME` / `MQTT_PASSWORD`) |
-| `MQTT_USERNAME` | no | If set (non-empty), sent as the MQTT username; use with `MQTT_PASSWORD` instead of embedding credentials in `MQTT_URL` |
+| `MQTT_HOST` | yes* | Broker hostname (*required if `MQTT_URL` is unset) |
+| `MQTT_PORT` | no | Broker port; default **8883** with TLS, **1883** when `MQTT_SSL=false` |
+| `MQTT_SSL` / `MQTT_TLS` | no | Set to `false` for plain `mqtt://` (defaults to secured `mqtts://`) |
+| `MQTT_URL` | no | Full broker URL; if set, **`MQTT_HOST` / `MQTT_PORT` / `MQTT_SSL` are ignored** |
+| `MQTT_USERNAME` | no | MQTT username (pair with `MQTT_PASSWORD`; avoids userinfo in `MQTT_URL`) |
 | `MQTT_PASSWORD` | no | MQTT password when `MQTT_USERNAME` is set; defaults to empty string if unset |
 | `MQTT_CLIENT_ID` | no | Optional fixed MQTT client id (otherwise generated) |
 | `MQTT_TOPICS` | yes | Comma-separated subscribe patterns (`+`, `#` per MQTT rules) |
@@ -131,7 +134,9 @@ flowchart LR
 
 Non-JSON MQTT bodies are **skipped** (logged). Only successfully parsed JSON is stored as `jsonb`.
 
-**MQTT authentication:** Prefer `MQTT_URL` without userinfo plus `MQTT_USERNAME` and `MQTT_PASSWORD` so secrets are not URL-encoded in one string. You can still use `mqtts://user:pass@host:8883` if your broker and passwords fit safely in a URL.
+**MQTT connection:** Either set **`MQTT_HOST`** (and optionally **`MQTT_PORT`**) or set **`MQTT_URL`** alone. With host/port, the URL is built as `mqtts://HOST:PORT` by default (port **8883**), or `mqtt://HOST:1883` when **`MQTT_SSL=false`**.
+
+**MQTT authentication:** Use **`MQTT_USERNAME`** and **`MQTT_PASSWORD`** (with host/port or a host-only `MQTT_URL`). You can still put `user:pass` inside `MQTT_URL` if that fits your deployment.
 
 ## Data path and queue
 

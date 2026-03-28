@@ -1,6 +1,10 @@
 const KEYS = [
   "DATABASE_URL",
   "MQTT_URL",
+  "MQTT_HOST",
+  "MQTT_PORT",
+  "MQTT_SSL",
+  "MQTT_TLS",
   "MQTT_USERNAME",
   "MQTT_PASSWORD",
   "MQTT_CLIENT_ID",
