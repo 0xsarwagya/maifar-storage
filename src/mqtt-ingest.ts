@@ -4,6 +4,14 @@ import { extractDeviceId } from "./device-id";
 import * as queue from "./queue";
 import type { QueuedRow } from "./types";
 
+/** Max JSON characters logged per message payload (full row still stored). */
+const LOG_PAYLOAD_MAX_CHARS = 16_384;
+
+function truncateForLog(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return `${s.slice(0, max)}… (+${s.length - max} more chars)`;
+}
+
 function buildClientOptions(
   config: Pick<
     AppConfig,
@@ -90,7 +98,9 @@ export function startMqttIngest(
     try {
       text = buf.toString("utf8");
     } catch {
-      console.error("[mqtt] invalid utf-8, topic:", topic);
+      console.log(
+        `[mqtt] received topic=${JSON.stringify(topic)} bytes=${buf.length} skip=invalid_utf8`,
+      );
       return;
     }
 
@@ -98,7 +108,9 @@ export function startMqttIngest(
     try {
       parsed = JSON.parse(text) as unknown;
     } catch {
-      console.error("[mqtt] skip non-json payload, topic:", topic);
+      console.log(
+        `[mqtt] received topic=${JSON.stringify(topic)} bytes=${buf.length} skip=non_json preview=${truncateForLog(text, 512)}`,
+      );
       return;
     }
 
@@ -113,6 +125,11 @@ export function startMqttIngest(
       ),
       payload: parsed,
     };
+
+    const payloadJson = JSON.stringify(parsed);
+    console.log(
+      `[mqtt] message topic=${JSON.stringify(topic)} device_id=${JSON.stringify(row.deviceId)} bytes=${buf.length} payload=${truncateForLog(payloadJson, LOG_PAYLOAD_MAX_CHARS)}`,
+    );
 
     queue.enqueue(row);
     if (queue.depth() >= config.batchMax) {
