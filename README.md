@@ -117,10 +117,11 @@ flowchart LR
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | yes | PostgreSQL connection URL |
-| `MQTT_HOST` | yes* | Broker hostname (*required if `MQTT_URL` is unset) |
+| `MQTT_HOST` | yes* | Broker hostname (*required if neither `MQTT_URL` nor `MQTT_SERVERS` is set) |
 | `MQTT_PORT` | no | Broker port; default **8883** with TLS, **1883** when `MQTT_SSL=false` |
-| `MQTT_SSL` / `MQTT_TLS` | no | Set to `false` for plain `mqtt://` (defaults to secured `mqtts://`) |
-| `MQTT_URL` | no | Full broker URL; if set, **`MQTT_HOST` / `MQTT_PORT` / `MQTT_SSL` are ignored** |
+| `MQTT_SSL` / `MQTT_TLS` | no | Set to `false` for plain `mqtt` (defaults to secured `mqtts`) |
+| `MQTT_SERVERS` | no | JSON array of `{ "host", "port", "protocol"? }`; MQTT.js iterates on reconnect; **`MQTT_HOST` / `MQTT_PORT` ignored** when set |
+| `MQTT_URL` | no | Full broker URL; if set, **`MQTT_HOST` / `MQTT_PORT` / `MQTT_SSL` / `MQTT_SERVERS` are ignored** |
 | `MQTT_USERNAME` | no | MQTT username (pair with `MQTT_PASSWORD`; avoids userinfo in `MQTT_URL`) |
 | `MQTT_PASSWORD` | no | MQTT password when `MQTT_USERNAME` is set; defaults to empty string if unset |
 | `MQTT_CLIENT_ID` | no | Optional fixed MQTT client id (otherwise generated) |
@@ -134,7 +135,7 @@ flowchart LR
 
 Non-JSON MQTT bodies are **skipped** (logged). Only successfully parsed JSON is stored as `jsonb`.
 
-**MQTT connection:** Either set **`MQTT_HOST`** (and optionally **`MQTT_PORT`**) or set **`MQTT_URL`** alone. With host/port, the URL is built as `mqtts://HOST:PORT` by default (port **8883**), or `mqtt://HOST:1883` when **`MQTT_SSL=false`**.
+**MQTT connection:** Use **`MQTT_URL`**, or **`MQTT_SERVERS`** (JSON array, same shape as [MQTT.js `servers`](https://github.com/mqttjs/MQTT.js#client)), or **`MQTT_HOST`** with optional **`MQTT_PORT`**. For host/port, the client uses **`mqtts`** on port **8883** by default, or **`mqtt`** on **1883** when **`MQTT_SSL=false`** — without synthesizing a URL string; options are passed as `protocol` + `servers`.
 
 **MQTT authentication:** Use **`MQTT_USERNAME`** and **`MQTT_PASSWORD`** (with host/port or a host-only `MQTT_URL`). You can still put `user:pass` inside `MQTT_URL` if that fits your deployment.
 

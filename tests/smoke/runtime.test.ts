@@ -18,6 +18,7 @@ describe.skipIf(!hasTestDatabase)("smoke: server + health", () => {
     process.env.MQTT_URL = "mqtt://127.0.0.1:1";
     delete process.env.MQTT_HOST;
     delete process.env.MQTT_PORT;
+    delete process.env.MQTT_SERVERS;
     process.env.MQTT_TOPICS = "#";
     process.env.BATCH_MAX = "10";
     process.env.FLUSH_INTERVAL_MS = "60000";

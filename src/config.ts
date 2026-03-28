@@ -6,9 +6,66 @@ function requireEnv(name: string): string {
   return v;
 }
 
-function resolveMqttUrl(): string {
+export type MqttServerEntry = {
+  host: string;
+  port: number;
+  protocol?: "mqtt" | "mqtts";
+};
+
+/** How to reach the broker: full URL, or `servers` list (iterated on reconnect). */
+export type MqttConnectionConfig =
+  | { kind: "url"; url: string }
+  | { kind: "servers"; protocol: "mqtt" | "mqtts"; servers: MqttServerEntry[] };
+
+function parseMqttServersJson(raw: string): MqttServerEntry[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("MQTT_SERVERS must be valid JSON");
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error("MQTT_SERVERS must be a non-empty JSON array");
+  }
+  const out: MqttServerEntry[] = [];
+  for (let i = 0; i < parsed.length; i++) {
+    const item = parsed[i];
+    if (!item || typeof item !== "object") {
+      throw new Error(`MQTT_SERVERS[${i}] must be an object with host and port`);
+    }
+    const o = item as Record<string, unknown>;
+    const host = String(o.host ?? "").trim();
+    const port = Number(o.port);
+    if (!host) {
+      throw new Error(`MQTT_SERVERS[${i}].host is required`);
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(`MQTT_SERVERS[${i}].port must be an integer from 1 to 65535`);
+    }
+    const pr = o.protocol;
+    const protocol =
+      pr === "mqtt" || pr === "mqtts" ? (pr as "mqtt" | "mqtts") : undefined;
+    out.push({ host, port, protocol });
+  }
+  return out;
+}
+
+function resolveMqttConnection(): MqttConnectionConfig {
   const fromUrl = process.env.MQTT_URL?.trim();
-  if (fromUrl) return fromUrl;
+  if (fromUrl) {
+    return { kind: "url", url: fromUrl };
+  }
+
+  const tlsOff =
+    process.env.MQTT_SSL === "false" || process.env.MQTT_TLS === "false";
+  const defaultProtocol = tlsOff ? "mqtt" : "mqtts";
+  const defaultPort = tlsOff ? 1883 : 8883;
+
+  const serversJson = process.env.MQTT_SERVERS?.trim();
+  if (serversJson) {
+    const servers = parseMqttServersJson(serversJson);
+    return { kind: "servers", protocol: defaultProtocol, servers };
+  }
 
   const host = requireEnv("MQTT_HOST").trim();
   if (!host) {
@@ -16,21 +73,22 @@ function resolveMqttUrl(): string {
       "MQTT_HOST cannot be empty or whitespace when MQTT_URL is unset",
     );
   }
-  const tlsOff =
-    process.env.MQTT_SSL === "false" || process.env.MQTT_TLS === "false";
-  const scheme = tlsOff ? "mqtt" : "mqtts";
-  const defaultPort = tlsOff ? 1883 : 8883;
   const portRaw = process.env.MQTT_PORT?.trim();
   const port = portRaw ? Number(portRaw) : defaultPort;
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("MQTT_PORT must be an integer from 1 to 65535");
   }
-  return `${scheme}://${host}:${port}`;
+
+  return {
+    kind: "servers",
+    protocol: defaultProtocol,
+    servers: [{ host, port, protocol: defaultProtocol }],
+  };
 }
 
 export type AppConfig = {
   databaseUrl: string;
-  mqttUrl: string;
+  mqtt: MqttConnectionConfig;
   /** When set, sent as MQTT `username` / `password` (avoids putting secrets in `MQTT_URL`). */
   mqttUsername?: string;
   mqttPassword?: string;
@@ -72,7 +130,7 @@ export function loadConfig(): AppConfig {
 
   return {
     databaseUrl: requireEnv("DATABASE_URL"),
-    mqttUrl: resolveMqttUrl(),
+    mqtt: resolveMqttConnection(),
     mqttUsername,
     mqttPassword,
     mqttClientId,

@@ -5,6 +5,7 @@ const KEYS = [
   "MQTT_PORT",
   "MQTT_SSL",
   "MQTT_TLS",
+  "MQTT_SERVERS",
   "MQTT_USERNAME",
   "MQTT_PASSWORD",
   "MQTT_CLIENT_ID",
