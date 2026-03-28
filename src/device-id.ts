@@ -5,7 +5,12 @@ export function extractDeviceId(
   jsonKey?: string,
 ): string | null {
   const m = topic.match(regex);
-  if (m?.[1]) return m[1];
+  if (m) {
+    for (let i = 1; i < m.length; i++) {
+      const g = m[i];
+      if (g !== undefined && g !== "") return g;
+    }
+  }
   if (
     jsonKey &&
     payload &&

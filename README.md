@@ -141,7 +141,7 @@ flowchart LR
 | `HTTP_PORT` | no | Default `3000` |
 | `BATCH_MAX` | no | Rows per flush (default `100`) |
 | `FLUSH_INTERVAL_MS` | no | Timer flush interval ms (default `1000`, minimum `50`) |
-| `DEVICE_ID_TOPIC_REGEX` | no | Regex with capture group 1 = device id (default `^devices/([^/]+)/`) |
+| `DEVICE_ID_TOPIC_REGEX` | no | Regex with **at least one** capture group for device id (default `^devices/([^/]+)/`). For several topic shapes, use **one** regex with alternation, e.g. `^(?:devices/([^/]+)/|MC01/Server/([^/]+))$` — the first **non-empty** captured group wins |
 | `DEVICE_ID_JSON_KEY` | no | JSON object key for device id when regex does not match |
 | `DISPLAY_TIMEZONE` | no | Default IANA timezone for `/devices` `*_local` fields when `timezone` query is omitted; falls back to `TZ`, then UTC |
 | `CORS_ORIGIN` | no | `Access-Control-Allow-Origin` for all HTTP responses (default **`*`**). Set to your SPA origin if you do not want `*` |

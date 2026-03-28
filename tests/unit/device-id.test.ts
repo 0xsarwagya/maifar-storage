@@ -32,4 +32,11 @@ describe("extractDeviceId", () => {
   test("no match", () => {
     expect(extractDeviceId("x/y", { a: 1 }, rx)).toBeNull();
   });
+
+  test("alternation uses first non-empty capture group", () => {
+    const alt =
+      /^(?:devices\/([^/]+)\/telemetry|MC01\/Server\/([^/]+))$/;
+    expect(extractDeviceId("devices/acme/telemetry", {}, alt)).toBe("acme");
+    expect(extractDeviceId("MC01/Server/unit-9", {}, alt)).toBe("unit-9");
+  });
 });
