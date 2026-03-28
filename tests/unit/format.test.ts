@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   csvEscapeCell,
   decodeCursor,
@@ -8,6 +8,7 @@ import {
   MAX_LIMIT,
   parseIsoDate,
   parseLimit,
+  resolveDisplayTimeZone,
   rowToApi,
 } from "../../src/format";
 
@@ -90,6 +91,30 @@ describe("format.csvEscapeCell", () => {
     expect(csvEscapeCell('say "hi"')).toBe('"say ""hi"""');
     expect(csvEscapeCell("a\nb")).toBe('"a\nb"');
     expect(csvEscapeCell("a,b")).toBe('"a,b"');
+  });
+});
+
+describe("format.resolveDisplayTimeZone", () => {
+  const prevTz = process.env.TZ;
+  const prevDisplay = process.env.DISPLAY_TIMEZONE;
+
+  afterEach(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+    if (prevDisplay === undefined) delete process.env.DISPLAY_TIMEZONE;
+    else process.env.DISPLAY_TIMEZONE = prevDisplay;
+  });
+
+  test("query param wins over env", () => {
+    process.env.DISPLAY_TIMEZONE = "Europe/London";
+    process.env.TZ = "America/Los_Angeles";
+    const r = resolveDisplayTimeZone("Asia/Tokyo");
+    expect(r).toEqual({ ok: true, value: "Asia/Tokyo" });
+  });
+
+  test("rejects invalid IANA name", () => {
+    const r = resolveDisplayTimeZone("Not/A/Timezone");
+    expect(r.ok).toBe(false);
   });
 });
 

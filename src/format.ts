@@ -82,3 +82,37 @@ export function rowToApi(r: {
     payload: r.payload,
   };
 }
+
+/** Query `timezone` wins, then `DISPLAY_TIMEZONE`, then `TZ`, else UTC. */
+export function resolveDisplayTimeZone(
+  queryTimezone: string | null | undefined,
+): ParseResult<string> {
+  const raw =
+    queryTimezone?.trim() ||
+    process.env.DISPLAY_TIMEZONE?.trim() ||
+    process.env.TZ?.trim() ||
+    "UTC";
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: raw });
+    return { ok: true, value: raw };
+  } catch {
+    return {
+      ok: false,
+      message: `Invalid timezone: ${raw} (use an IANA name, e.g. Europe/Berlin)`,
+    };
+  }
+}
+
+export function formatInstantInTimeZone(d: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  }).format(d);
+}

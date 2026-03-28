@@ -5,8 +5,10 @@ import {
   decodeCursor,
   encodeCursor,
   escapeLikePrefix,
+  formatInstantInTimeZone,
   parseIsoDate,
   parseLimit,
+  resolveDisplayTimeZone,
   rowToApi,
   type CursorPayload,
 } from "./format";
@@ -30,6 +32,13 @@ type DbRow = {
   topic: string;
   device_id: string | null;
   payload: unknown;
+};
+
+type DeviceSummaryRow = {
+  device_id: string;
+  last_received_at: Date;
+  first_received_at: Date;
+  message_count: bigint;
 };
 
 async function selectPage(
@@ -107,6 +116,55 @@ export function createFetchHandler(sql: Sql, getQueueDepth: () => number) {
         ok: true,
         database,
         queue_depth: getQueueDepth(),
+      });
+    }
+
+    if (path === "/devices") {
+      const tz = resolveDisplayTimeZone(url.searchParams.get("timezone"));
+      if (!tz.ok) return badRequest(tz.message);
+
+      type NullCountRow = { n: bigint };
+      const [rows, nullRows] = await Promise.all([
+        sql`
+          /* maifar:devices_summary */
+          select
+            device_id,
+            max(received_at) as last_received_at,
+            min(received_at) as first_received_at,
+            count(*)::bigint as message_count
+          from device_messages
+          where device_id is not null
+          group by device_id
+          order by max(received_at) desc
+        `,
+        sql`
+          /* maifar:devices_null_device_count */
+          select count(*)::bigint as n
+          from device_messages
+          where device_id is null
+        `,
+      ]);
+
+      const summary = rows as unknown as DeviceSummaryRow[];
+      const withoutId = (nullRows as unknown as NullCountRow[])[0]?.n ?? 0n;
+
+      return Response.json({
+        timezone: tz.value,
+        messages_without_device_id: withoutId.toString(),
+        items: summary.map((r) => ({
+          device_id: r.device_id,
+          message_count: r.message_count.toString(),
+          first_received_at: r.first_received_at.toISOString(),
+          last_received_at: r.last_received_at.toISOString(),
+          first_received_at_local: formatInstantInTimeZone(
+            r.first_received_at,
+            tz.value,
+          ),
+          last_received_at_local: formatInstantInTimeZone(
+            r.last_received_at,
+            tz.value,
+          ),
+        })),
       });
     }
 

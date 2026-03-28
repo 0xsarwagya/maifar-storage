@@ -1,5 +1,6 @@
 const KEYS = [
   "DATABASE_URL",
+  "AUTO_MIGRATE",
   "MQTT_URL",
   "MQTT_HOST",
   "MQTT_PORT",

@@ -12,6 +12,7 @@ export function buildOpenApiDocument(origin: string): Record<string, unknown> {
     servers: [{ url: origin }],
     tags: [
       { name: "Health", description: "Service status" },
+      { name: "Devices", description: "Per-device activity summary" },
       { name: "Messages", description: "Query and export ingested messages" },
     ],
     paths: {
@@ -27,6 +28,35 @@ export function buildOpenApiDocument(origin: string): Record<string, unknown> {
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/HealthResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/devices": {
+        get: {
+          tags: ["Devices"],
+          summary: "List devices and last activity",
+          description:
+            "Distinct `device_id` values from stored messages, with first/last timestamps. " +
+            "`last_received_at_local` / `first_received_at_local` use the resolved timezone " +
+            "(`timezone` query, else `DISPLAY_TIMEZONE`, else `TZ`, else UTC).",
+          parameters: [{ $ref: "#/components/parameters/Timezone" }],
+          responses: {
+            "200": {
+              description: "Device summary",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/DevicesSummaryResponse" },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid timezone",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorBody" },
                 },
               },
             },
@@ -182,6 +212,13 @@ export function buildOpenApiDocument(origin: string): Record<string, unknown> {
           description: "Opaque keyset cursor from `next_cursor`",
           schema: { type: "string" },
         },
+        Timezone: {
+          name: "timezone",
+          in: "query",
+          description:
+            "IANA timezone for `*_local` fields (e.g. `America/New_York`). Overrides `DISPLAY_TIMEZONE` and `TZ`.",
+          schema: { type: "string", example: "Europe/Berlin" },
+        },
       },
       schemas: {
         HealthResponse: {
@@ -231,6 +268,56 @@ export function buildOpenApiDocument(origin: string): Record<string, unknown> {
               items: { $ref: "#/components/schemas/MessageItem" },
             },
             next_cursor: { type: "string", nullable: true },
+          },
+        },
+        DeviceSummaryItem: {
+          type: "object",
+          required: [
+            "device_id",
+            "message_count",
+            "first_received_at",
+            "last_received_at",
+            "first_received_at_local",
+            "last_received_at_local",
+          ],
+          properties: {
+            device_id: { type: "string" },
+            message_count: {
+              type: "string",
+              description: "Total stored messages for this device",
+            },
+            first_received_at: { type: "string", format: "date-time" },
+            last_received_at: { type: "string", format: "date-time" },
+            first_received_at_local: {
+              type: "string",
+              description: "Formatted in the resolved display timezone",
+            },
+            last_received_at_local: {
+              type: "string",
+              description: "Formatted in the resolved display timezone",
+            },
+          },
+        },
+        DevicesSummaryResponse: {
+          type: "object",
+          required: [
+            "timezone",
+            "messages_without_device_id",
+            "items",
+          ],
+          properties: {
+            timezone: {
+              type: "string",
+              description: "IANA timezone used for `*_local` fields",
+            },
+            messages_without_device_id: {
+              type: "string",
+              description: "Count of rows where `device_id` was null",
+            },
+            items: {
+              type: "array",
+              items: { $ref: "#/components/schemas/DeviceSummaryItem" },
+            },
           },
         },
         ErrorBody: {

@@ -63,6 +63,7 @@ describe("createFetchHandler", () => {
     const spec = (await res.json()) as { openapi: string; paths: object };
     expect(spec.openapi).toBe("3.0.3");
     expect(spec.paths).toHaveProperty("/health");
+    expect(spec.paths).toHaveProperty("/devices");
     expect(spec.paths).toHaveProperty("/messages");
   });
 
@@ -91,6 +92,57 @@ describe("createFetchHandler", () => {
     const html = await res.text();
     expect(html).toContain("redoc");
     expect(html).toContain("/openapi.json");
+  });
+
+  test("GET /devices invalid timezone returns 400", async () => {
+    const handler = createFetchHandler(null as unknown as Sql, () => 0);
+    const res = await handler(
+      new Request("http://localhost/devices?timezone=Invalid/Zone"),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("GET /devices returns device summary from mock sql", async () => {
+    const mockSql = ((strings: TemplateStringsArray) => {
+      const q = strings.join("");
+      if (q.includes("maifar:devices_summary")) {
+        return Promise.resolve([
+          {
+            device_id: "unit-1",
+            last_received_at: new Date("2024-06-01T15:00:00.000Z"),
+            first_received_at: new Date("2024-01-01T12:00:00.000Z"),
+            message_count: 42n,
+          },
+        ]);
+      }
+      if (q.includes("maifar:devices_null_device_count")) {
+        return Promise.resolve([{ n: 3n }]);
+      }
+      return Promise.resolve([]);
+    }) as Sql;
+
+    const handler = createFetchHandler(mockSql, () => 0);
+    const res = await handler(
+      new Request("http://localhost/devices?timezone=UTC"),
+    );
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as {
+      timezone: string;
+      messages_without_device_id: string;
+      items: {
+        device_id: string;
+        message_count: string;
+        last_received_at: string;
+        last_received_at_local: string;
+      }[];
+    };
+    expect(data.timezone).toBe("UTC");
+    expect(data.messages_without_device_id).toBe("3");
+    expect(data.items).toHaveLength(1);
+    expect(data.items[0]!.device_id).toBe("unit-1");
+    expect(data.items[0]!.message_count).toBe("42");
+    expect(data.items[0]!.last_received_at).toBe("2024-06-01T15:00:00.000Z");
+    expect(data.items[0]!.last_received_at_local.length).toBeGreaterThan(5);
   });
 
   test("GET /messages returns rows from mock sql", async () => {

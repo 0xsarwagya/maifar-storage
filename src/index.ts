@@ -1,4 +1,12 @@
 import { createApp } from "./app";
+import { loadConfig } from "./config";
+import { migrateDatabase } from "./schema-migrate";
+
+const config = loadConfig();
+if (config.autoMigrate) {
+  await migrateDatabase(config.databaseUrl);
+  console.log("[db] schema migration applied");
+}
 
 const app = createApp();
 
