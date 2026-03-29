@@ -52,6 +52,7 @@ export function startMqttIngest(
     | "mqttTlsRejectUnauthorized"
     | "mqttTlsCa"
     | "mqttTopics"
+    | "mqttSubscribeQos"
     | "deviceIdTopicRegex"
     | "deviceIdJsonKey"
     | "skipDeviceIdPrefixes"
@@ -77,9 +78,9 @@ export function startMqttIngest(
         });
 
   client.on("connect", () => {
-    console.log("[mqtt] connected");
+    console.log(`[mqtt] connected (subscribe_qos=${config.mqttSubscribeQos})`);
     for (const t of config.mqttTopics) {
-      client.subscribe(t, { qos: 0 }, (err) => {
+      client.subscribe(t, { qos: config.mqttSubscribeQos }, (err) => {
         if (err) console.error(`[mqtt] subscribe failed for ${t}:`, err);
         else console.log(`[mqtt] subscribed: ${t}`);
       });
@@ -95,24 +96,14 @@ export function startMqttIngest(
   });
 
   client.on("message", (topic, buf) => {
-    let text: string;
-    try {
-      text = buf.toString("utf8");
-    } catch {
-      console.log(
-        `[mqtt] received topic=${JSON.stringify(topic)} bytes=${buf.length} skip=invalid_utf8`,
-      );
-      return;
-    }
+    const text = buf.toString("utf8");
 
     let parsed: unknown;
     try {
       parsed = JSON.parse(text) as unknown;
     } catch {
-      console.log(
-        `[mqtt] received topic=${JSON.stringify(topic)} bytes=${buf.length} skip=non_json preview=${truncateForLog(text, 512)}`,
-      );
-      return;
+      // Store non-JSON bodies as JSON strings to avoid drops.
+      parsed = text;
     }
 
     const row: QueuedRow = {
@@ -129,9 +120,6 @@ export function startMqttIngest(
 
     const did = row.deviceId;
     if (did && config.skipDeviceIdPrefixes.some((p) => did.startsWith(p))) {
-      console.log(
-        `[mqtt] skip=filtered_device_id topic=${JSON.stringify(topic)} device_id=${JSON.stringify(did)} prefixes=${JSON.stringify(config.skipDeviceIdPrefixes)}`,
-      );
       return;
     }
 

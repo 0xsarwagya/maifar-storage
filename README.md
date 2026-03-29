@@ -138,6 +138,7 @@ flowchart LR
 | `MQTT_USERNAME` | no | MQTT username (pair with `MQTT_PASSWORD`; avoids userinfo in `MQTT_URL`) |
 | `MQTT_PASSWORD` | no | MQTT password when `MQTT_USERNAME` is set; defaults to empty string if unset |
 | `MQTT_CLIENT_ID` | no | Optional fixed MQTT client id (otherwise generated) |
+| `MQTT_SUBSCRIBE_QOS` | no | Subscribe QoS for all topics (`0`, `1`, or `2`), default **`1`** |
 | `MQTT_TOPICS` | yes | Comma-separated subscribe patterns (`+`, `#` per MQTT rules) |
 | `HTTP_PORT` | no | Default `3000` |
 | `BATCH_MAX` | no | Rows per flush (default `100`) |
@@ -152,7 +153,7 @@ flowchart LR
 | `PING_CRON` | no | Cron expression for keepalive schedule (default `*/20 * * * * *`) |
 | `TEST_DATABASE_URL` | tests only | Same shape as `DATABASE_URL`; enables integration + DB smoke tests |
 
-Non-JSON MQTT bodies are **skipped** (logged). Only successfully parsed JSON is stored as `jsonb`.
+Non-JSON MQTT bodies are stored as JSON strings in `payload` (so ingest does not drop them).
 
 **MQTT connection:** Use **`MQTT_URL`**, or **`MQTT_SERVERS`**, or **`MQTT_HOST`** with optional **`MQTT_PORT`**. Without TLS flags, the client uses plain **`mqtt`** on port **1883** by default. Set **`MQTT_SSL=true`** or **`MQTT_TLS=true`** for **`mqtts`** and default port **8883**. Options are passed as `protocol` + `servers` (no synthetic URL for the host/port path).
 

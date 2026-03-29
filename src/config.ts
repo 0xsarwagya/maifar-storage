@@ -181,6 +181,8 @@ export type AppConfig = {
   /** PEM bundle read from `MQTT_TLS_CA_FILE`, if set. */
   mqttTlsCa?: string;
   mqttTopics: string[];
+  /** MQTT subscribe QoS (0/1/2). Default 1 for better delivery reliability. */
+  mqttSubscribeQos: 0 | 1 | 2;
   httpPort: number;
   batchMax: number;
   flushIntervalMs: number;
@@ -219,6 +221,19 @@ export function loadConfig(): AppConfig {
   const mqttPassword =
     mqttUsername !== undefined ? (process.env.MQTT_PASSWORD ?? "") : undefined;
   const mqttClientId = process.env.MQTT_CLIENT_ID?.trim() || undefined;
+  const mqttSubscribeQosRaw = process.env.MQTT_SUBSCRIBE_QOS?.trim();
+  const mqttSubscribeQos = (mqttSubscribeQosRaw === undefined ||
+  mqttSubscribeQosRaw === "")
+    ? 1
+    : Number(mqttSubscribeQosRaw);
+  if (
+    !Number.isInteger(mqttSubscribeQos) ||
+    (mqttSubscribeQos !== 0 &&
+      mqttSubscribeQos !== 1 &&
+      mqttSubscribeQos !== 2)
+  ) {
+    throw new Error("MQTT_SUBSCRIBE_QOS must be 0, 1, or 2");
+  }
 
   const autoMigrateRaw = process.env.AUTO_MIGRATE?.trim().toLowerCase();
   const autoMigrate =
@@ -240,6 +255,7 @@ export function loadConfig(): AppConfig {
     mqttTlsRejectUnauthorized: resolveMqttTlsRejectUnauthorized(),
     mqttTlsCa: resolveMqttTlsCaPem(),
     mqttTopics: topics,
+    mqttSubscribeQos,
     httpPort: Number(process.env.HTTP_PORT ?? 3000) || 3000,
     batchMax: Math.max(1, Number(process.env.BATCH_MAX ?? 100)),
     flushIntervalMs: Math.max(50, Number(process.env.FLUSH_INTERVAL_MS ?? 1000)),

@@ -16,6 +16,7 @@ const keys = [
   "MQTT_USERNAME",
   "MQTT_PASSWORD",
   "MQTT_CLIENT_ID",
+  "MQTT_SUBSCRIBE_QOS",
   "MQTT_TLS_INSECURE",
   "MQTT_TLS_REJECT_UNAUTHORIZED",
   "MQTT_TLS_CA_FILE",
@@ -93,6 +94,7 @@ describe("loadConfig", () => {
     );
     expect(c.deviceIdJsonKey).toBeUndefined();
     expect(c.skipDeviceIdPrefixes).toEqual(["Client-"]);
+    expect(c.mqttSubscribeQos).toBe(1);
     expect(c.mqttTlsRejectUnauthorized).toBe(true);
     expect(c.mqttTlsCa).toBeUndefined();
     expect(c.databaseTlsRejectUnauthorized).toBe(true);
@@ -124,6 +126,19 @@ describe("loadConfig", () => {
 
     const c = loadConfig();
     expect(c.skipDeviceIdPrefixes).toEqual(["Client-XYZ", "demo-"]);
+  });
+
+  test("parses MQTT_SUBSCRIBE_QOS", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.MQTT_SUBSCRIBE_QOS = "2";
+
+    const c = loadConfig();
+    expect(c.mqttSubscribeQos).toBe(2);
   });
 
   test("throws when MQTT_TOPICS empty after split", () => {
@@ -306,6 +321,18 @@ describe("loadConfig", () => {
     process.env.MQTT_TOPICS = "#";
 
     expect(() => loadConfig()).toThrow(/MQTT_PORT/);
+  });
+
+  test("throws on invalid MQTT_SUBSCRIBE_QOS", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.MQTT_SUBSCRIBE_QOS = "3";
+
+    expect(() => loadConfig()).toThrow(/MQTT_SUBSCRIBE_QOS/);
   });
 
   test("AUTO_MIGRATE false disables auto-migrate flag", () => {
