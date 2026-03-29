@@ -32,7 +32,28 @@ ${body}
   });
 }
 
-function swaggerUiHtml(): Response {
+function firstHeaderValue(raw: string | null): string | undefined {
+  if (!raw) return undefined;
+  return raw.split(",")[0]?.trim() || undefined;
+}
+
+function resolveExternalOrigin(req: Request, url: URL): string {
+  const xfHost = firstHeaderValue(req.headers.get("x-forwarded-host"));
+  const host = xfHost || firstHeaderValue(req.headers.get("host")) || url.host;
+
+  const xfProtoRaw = firstHeaderValue(req.headers.get("x-forwarded-proto"))?.toLowerCase();
+  const protoFromUrl = url.protocol.replace(/:$/, "").toLowerCase();
+  const proto =
+    xfProtoRaw === "http" || xfProtoRaw === "https"
+      ? xfProtoRaw
+      : protoFromUrl === "http" || protoFromUrl === "https"
+        ? protoFromUrl
+        : "https";
+
+  return `${proto}://${host}`;
+}
+
+function swaggerUiHtml(specUrl: string): Response {
   return htmlPage(
     "API docs — Swagger UI",
     `<div id="swagger-ui"></div>
@@ -40,9 +61,8 @@ function swaggerUiHtml(): Response {
 <script src="${SWAGGER_UI_BUNDLE}" crossorigin="anonymous"></script>
 <script>
   window.onload = function () {
-    var specUrl = new URL("/openapi.json", window.location.href).href;
     window.ui = SwaggerUIBundle({
-      url: specUrl,
+      url: ${JSON.stringify(specUrl)},
       dom_id: "#swagger-ui",
       deepLinking: true,
       persistAuthorization: true,
@@ -52,28 +72,28 @@ function swaggerUiHtml(): Response {
   );
 }
 
-function scalarHtml(): Response {
+function scalarHtml(specUrl: string): Response {
   return htmlPage(
     "API docs — Scalar",
     `<script id="api-reference"></script>
 <script>
   (function () {
     var el = document.getElementById("api-reference");
-    el.setAttribute("data-url", new URL("/openapi.json", window.location.href).href);
+    el.setAttribute("data-url", ${JSON.stringify(specUrl)});
   })();
 </script>
 <script src="${SCALAR_STANDALONE}" crossorigin="anonymous"></script>`,
   );
 }
 
-function redocHtml(): Response {
+function redocHtml(specUrl: string): Response {
   return htmlPage(
     "API docs — ReDoc",
     `<redoc id="redoc-el"></redoc>
 <script>
   document.getElementById("redoc-el").setAttribute(
     "spec-url",
-    new URL("/openapi.json", window.location.href).href,
+    ${JSON.stringify(specUrl)},
   );
 </script>
 <script src="${REDOC_SCRIPT}" crossorigin="anonymous"></script>`,
@@ -89,9 +109,10 @@ export function tryServeApiDocs(req: Request): Response | null {
 
   const url = new URL(req.url);
   const path = url.pathname;
+  const origin = resolveExternalOrigin(req, url);
+  const specUrl = `${origin}/openapi.json`;
 
   if (path === "/openapi.json") {
-    const origin = url.origin;
     const doc = buildOpenApiDocument(origin);
     return Response.json(doc, {
       headers: {
@@ -102,15 +123,15 @@ export function tryServeApiDocs(req: Request): Response | null {
   }
 
   if (path === "/docs" || path === "/docs/") {
-    return swaggerUiHtml();
+    return swaggerUiHtml(specUrl);
   }
 
   if (path === "/scalar" || path === "/scalar/") {
-    return scalarHtml();
+    return scalarHtml(specUrl);
   }
 
   if (path === "/redoc" || path === "/redoc/") {
-    return redocHtml();
+    return redocHtml(specUrl);
   }
 
   return null;

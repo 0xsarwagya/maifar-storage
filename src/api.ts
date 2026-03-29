@@ -127,6 +127,21 @@ export function createFetchHandler(sql: Sql, getQueueDepth: () => number) {
       );
     }
 
+    if (path === "/") {
+      return withCors(
+        req,
+        Response.json({
+          ok: true,
+          service: "maifar-storage",
+          docs: "/docs",
+          scalar: "/scalar",
+          redoc: "/redoc",
+          openapi: "/openapi.json",
+          health: "/health",
+        }),
+      );
+    }
+
     if (path === "/devices") {
       const tz = resolveDisplayTimeZone(url.searchParams.get("timezone"));
       if (!tz.ok) return withCors(req, badRequest(tz.message));

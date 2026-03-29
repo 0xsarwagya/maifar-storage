@@ -27,6 +27,15 @@ describe("createFetchHandler", () => {
     expect(res.status).toBe(404);
   });
 
+  test("GET / returns service metadata", async () => {
+    const handler = createFetchHandler(null as unknown as Sql, () => 0);
+    const res = await handler(new Request("http://localhost/"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { service: string; health: string };
+    expect(body.service).toBe("maifar-storage");
+    expect(body.health).toBe("/health");
+  });
+
   test("GET /health when DB ping fails", async () => {
     const brokenSql = ((strings: TemplateStringsArray) => {
       const q = strings.join("");
@@ -76,6 +85,40 @@ describe("createFetchHandler", () => {
     expect(spec.paths).toHaveProperty("/health");
     expect(spec.paths).toHaveProperty("/devices");
     expect(spec.paths).toHaveProperty("/messages");
+  });
+
+  test("GET /openapi.json respects forwarded host/proto", async () => {
+    const handler = createFetchHandler(null as unknown as Sql, () => 0);
+    const res = await handler(
+      new Request("http://internal/openapi.json", {
+        headers: {
+          "x-forwarded-host": "maifar-storage.onrender.com",
+          "x-forwarded-proto": "https",
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const spec = (await res.json()) as {
+      servers?: Array<{ url?: string }>;
+    };
+    expect(spec.servers?.[0]?.url).toBe("https://maifar-storage.onrender.com");
+  });
+
+  test("GET /openapi.json uses host + forwarded proto when forwarded host missing", async () => {
+    const handler = createFetchHandler(null as unknown as Sql, () => 0);
+    const res = await handler(
+      new Request("http://internal/openapi.json", {
+        headers: {
+          host: "maifar-storage.onrender.com",
+          "x-forwarded-proto": "https",
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const spec = (await res.json()) as {
+      servers?: Array<{ url?: string }>;
+    };
+    expect(spec.servers?.[0]?.url).toBe("https://maifar-storage.onrender.com");
   });
 
   test("GET /docs serves Swagger UI shell", async () => {

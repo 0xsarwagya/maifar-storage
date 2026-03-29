@@ -24,17 +24,29 @@ export function startKeepalivePing(defaultUrl?: string): KeepaliveHandle {
   }
 
   let inFlight = false;
+  let attempts = 0;
   async function ping(): Promise<void> {
-    if (inFlight) return;
+    if (inFlight) {
+      console.log(`[ping] ${new Date().toISOString()} skip=in_flight ${url}`);
+      return;
+    }
     inFlight = true;
+    attempts++;
+    const attemptNo = attempts;
     const t0 = Date.now();
+    console.log(
+      `[ping] ${new Date().toISOString()} sent attempt=${attemptNo} ${url}`,
+    );
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(25_000) });
       console.log(
-        `[ping] ${new Date().toISOString()} ${res.status} ${Date.now() - t0}ms ${url}`,
+        `[ping] ${new Date().toISOString()} ok attempt=${attemptNo} status=${res.status} ${Date.now() - t0}ms ${url}`,
       );
     } catch (e) {
-      console.error(`[ping] ${new Date().toISOString()} FAIL ${url}`, e);
+      console.error(
+        `[ping] ${new Date().toISOString()} fail attempt=${attemptNo} ${url}`,
+        e,
+      );
     } finally {
       inFlight = false;
     }

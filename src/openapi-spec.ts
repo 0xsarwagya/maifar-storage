@@ -16,6 +16,36 @@ export function buildOpenApiDocument(origin: string): Record<string, unknown> {
       { name: "Messages", description: "Query and export ingested messages" },
     ],
     paths: {
+      "/": {
+        get: {
+          tags: ["Health"],
+          summary: "Service root",
+          description:
+            "Quick service metadata and links to docs/health endpoints.",
+          responses: {
+            "200": {
+              description: "Service info",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["ok", "service", "health", "openapi"],
+                    properties: {
+                      ok: { type: "boolean", example: true },
+                      service: { type: "string", example: "maifar-storage" },
+                      docs: { type: "string", example: "/docs" },
+                      scalar: { type: "string", example: "/scalar" },
+                      redoc: { type: "string", example: "/redoc" },
+                      openapi: { type: "string", example: "/openapi.json" },
+                      health: { type: "string", example: "/health" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       "/health": {
         get: {
           tags: ["Health"],
