@@ -186,6 +186,8 @@ export type AppConfig = {
   flushIntervalMs: number;
   deviceIdTopicRegex: RegExp;
   deviceIdJsonKey?: string;
+  /** Comma-separated prefixes; matching device ids are skipped before storage. */
+  skipDeviceIdPrefixes: string[];
 };
 
 export function loadConfig(): AppConfig {
@@ -207,6 +209,10 @@ export function loadConfig(): AppConfig {
   }
 
   const jsonKey = process.env.DEVICE_ID_JSON_KEY?.trim();
+  const skipDeviceIdPrefixes = (process.env.SKIP_DEVICE_ID_PREFIXES ?? "Client-")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
   const mqttUsernameRaw = process.env.MQTT_USERNAME?.trim();
   const mqttUsername =
     mqttUsernameRaw && mqttUsernameRaw.length > 0 ? mqttUsernameRaw : undefined;
@@ -239,5 +245,6 @@ export function loadConfig(): AppConfig {
     flushIntervalMs: Math.max(50, Number(process.env.FLUSH_INTERVAL_MS ?? 1000)),
     deviceIdTopicRegex,
     deviceIdJsonKey: jsonKey || undefined,
+    skipDeviceIdPrefixes,
   };
 }

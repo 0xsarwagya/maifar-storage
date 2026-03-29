@@ -25,6 +25,7 @@ const keys = [
   "FLUSH_INTERVAL_MS",
   "DEVICE_ID_TOPIC_REGEX",
   "DEVICE_ID_JSON_KEY",
+  "SKIP_DEVICE_ID_PREFIXES",
 ] as const;
 
 function snapshotEnv(): Record<string, string | undefined> {
@@ -76,6 +77,7 @@ describe("loadConfig", () => {
     delete process.env.FLUSH_INTERVAL_MS;
     delete process.env.DEVICE_ID_TOPIC_REGEX;
     delete process.env.DEVICE_ID_JSON_KEY;
+    delete process.env.SKIP_DEVICE_ID_PREFIXES;
 
     const c = loadConfig();
     expect(c.databaseUrl).toBe("postgres://x/y");
@@ -90,6 +92,7 @@ describe("loadConfig", () => {
       "acme",
     );
     expect(c.deviceIdJsonKey).toBeUndefined();
+    expect(c.skipDeviceIdPrefixes).toEqual(["Client-"]);
     expect(c.mqttTlsRejectUnauthorized).toBe(true);
     expect(c.mqttTlsCa).toBeUndefined();
     expect(c.databaseTlsRejectUnauthorized).toBe(true);
@@ -108,6 +111,19 @@ describe("loadConfig", () => {
     const c = loadConfig();
     expect(c.mqttTopics).toEqual(["t1", "t2"]);
     expect(c.deviceIdJsonKey).toBe("did");
+  });
+
+  test("parses SKIP_DEVICE_ID_PREFIXES csv list", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.SKIP_DEVICE_ID_PREFIXES = " Client-XYZ , demo- , ";
+
+    const c = loadConfig();
+    expect(c.skipDeviceIdPrefixes).toEqual(["Client-XYZ", "demo-"]);
   });
 
   test("throws when MQTT_TOPICS empty after split", () => {

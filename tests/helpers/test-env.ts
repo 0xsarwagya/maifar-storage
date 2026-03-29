@@ -22,6 +22,7 @@ const KEYS = [
   "FLUSH_INTERVAL_MS",
   "DEVICE_ID_TOPIC_REGEX",
   "DEVICE_ID_JSON_KEY",
+  "SKIP_DEVICE_ID_PREFIXES",
 ] as const;
 
 export type EnvSnapshot = Record<string, string | undefined>;

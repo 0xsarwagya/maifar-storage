@@ -54,6 +54,7 @@ export function startMqttIngest(
     | "mqttTopics"
     | "deviceIdTopicRegex"
     | "deviceIdJsonKey"
+    | "skipDeviceIdPrefixes"
     | "batchMax"
   >,
   requestFlush: () => void,
@@ -125,6 +126,14 @@ export function startMqttIngest(
       ),
       payload: parsed,
     };
+
+    const did = row.deviceId;
+    if (did && config.skipDeviceIdPrefixes.some((p) => did.startsWith(p))) {
+      console.log(
+        `[mqtt] skip=filtered_device_id topic=${JSON.stringify(topic)} device_id=${JSON.stringify(did)} prefixes=${JSON.stringify(config.skipDeviceIdPrefixes)}`,
+      );
+      return;
+    }
 
     const payloadJson = JSON.stringify(parsed);
     console.log(

@@ -144,6 +144,7 @@ flowchart LR
 | `FLUSH_INTERVAL_MS` | no | Timer flush interval ms (default `1000`, minimum `50`) |
 | `DEVICE_ID_TOPIC_REGEX` | no | Regex with **at least one** capture group for device id (default `^devices/([^/]+)/`). For several topic shapes, use **one** regex with alternation, e.g. `^(?:devices/([^/]+)/|MC01/Server/([^/]+))$` — the first **non-empty** captured group wins |
 | `DEVICE_ID_JSON_KEY` | no | JSON object key for device id when regex does not match |
+| `SKIP_DEVICE_ID_PREFIXES` | no | Comma-separated prefixes for pre-storage drop filter. Default is **`Client-`** when unset (example override: `Client-,internal-test-`) |
 | `DISPLAY_TIMEZONE` | no | Default IANA timezone for `/devices` `*_local` fields when `timezone` query is omitted; falls back to `TZ`, then UTC |
 | `CORS_ORIGIN` | no | `Access-Control-Allow-Origin` for all HTTP responses (default **`*`**). Set to your SPA origin if you do not want `*` |
 | `KEEPALIVE_ENABLED` | no | Keepalive cron enabled on startup by default; set `false` / `0` / `no` / `off` to disable |
