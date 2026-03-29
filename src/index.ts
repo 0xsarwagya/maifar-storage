@@ -1,4 +1,5 @@
 import { createApp } from "./app";
+import { startKeepalivePing } from "./keepalive";
 import { loadConfig } from "./config";
 import { migrateDatabase } from "./schema-migrate";
 
@@ -14,6 +15,7 @@ if (config.autoMigrate) {
 }
 
 const app = createApp();
+const keepalive = startKeepalivePing();
 
 console.log(`[http] listening on ${app.url}`);
 console.log(`[http] API docs: ${app.url}/docs (Swagger), ${app.url}/scalar, ${app.url}/redoc, ${app.url}/openapi.json`);
@@ -23,6 +25,7 @@ console.log(
 
 async function shutdown(signal: string) {
   console.log(`[shutdown] ${signal}`);
+  keepalive.stop();
   await app.stop();
   process.exit(0);
 }

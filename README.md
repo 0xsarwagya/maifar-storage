@@ -109,9 +109,9 @@ flowchart LR
 | Command | Purpose |
 |---------|---------|
 | `bun run dev` | Watch mode, `src/index.ts` |
-| `bun run start` | Production-style run |
+| `bun run start` | Production-style run (starts keepalive ping job too, unless disabled) |
 | `bun run db:migrate` | Run `schema.sql` against `DATABASE_URL` |
-| `bun run ping:keepalive` | Loop: GET **`PING_URL`** every **`PING_INTERVAL_MS`** (default `https://maifar-storage.onrender.com/health`, **20s**) — not a system cron; run under a supervisor |
+| `bun run ping:keepalive` | Standalone `node-cron` ping worker (default **`*/20 * * * * *`**): GET **`PING_URL`** (`https://maifar-storage.onrender.com/health`) every 20s; override with **`PING_CRON`** |
 | `bun test` | All tests |
 | `bun run test:unit` | Unit only |
 | `bun run test:integration` | Integration (needs DB) |
@@ -146,6 +146,9 @@ flowchart LR
 | `DEVICE_ID_JSON_KEY` | no | JSON object key for device id when regex does not match |
 | `DISPLAY_TIMEZONE` | no | Default IANA timezone for `/devices` `*_local` fields when `timezone` query is omitted; falls back to `TZ`, then UTC |
 | `CORS_ORIGIN` | no | `Access-Control-Allow-Origin` for all HTTP responses (default **`*`**). Set to your SPA origin if you do not want `*` |
+| `KEEPALIVE_ENABLED` | no | Keepalive cron enabled on startup by default; set `false` / `0` / `no` / `off` to disable |
+| `PING_URL` | no | Keepalive target URL (default `https://maifar-storage.onrender.com/health`) |
+| `PING_CRON` | no | Cron expression for keepalive schedule (default `*/20 * * * * *`) |
 | `TEST_DATABASE_URL` | tests only | Same shape as `DATABASE_URL`; enables integration + DB smoke tests |
 
 Non-JSON MQTT bodies are **skipped** (logged). Only successfully parsed JSON is stored as `jsonb`.
