@@ -10,6 +10,7 @@
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "db:migrate": "bun run scripts/migrate.ts",
+    "ping:keepalive": "bun run scripts/keepalive-ping.ts",
     "test": "bun test",
     "test:unit": "bun test tests/unit",
     "test:integration": "bun test tests/integration",

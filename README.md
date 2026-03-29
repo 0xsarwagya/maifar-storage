@@ -111,6 +111,7 @@ flowchart LR
 | `bun run dev` | Watch mode, `src/index.ts` |
 | `bun run start` | Production-style run |
 | `bun run db:migrate` | Run `schema.sql` against `DATABASE_URL` |
+| `bun run ping:keepalive` | Loop: GET **`PING_URL`** every **`PING_INTERVAL_MS`** (default `https://maifar-storage.onrender.com/health`, **20s**) — not a system cron; run under a supervisor |
 | `bun test` | All tests |
 | `bun run test:unit` | Unit only |
 | `bun run test:integration` | Integration (needs DB) |
