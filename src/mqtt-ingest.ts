@@ -6,10 +6,43 @@ import type { QueuedRow } from "./types";
 
 /** Max JSON characters logged per message payload (full row still stored). */
 const LOG_PAYLOAD_MAX_CHARS = 16_384;
+const NUL = "\u0000";
 
 function truncateForLog(s: string, max: number): string {
   if (s.length <= max) return s;
   return `${s.slice(0, max)}… (+${s.length - max} more chars)`;
+}
+
+function stripNullChars(value: string): string {
+  return value.includes(NUL) ? value.replaceAll(NUL, "") : value;
+}
+
+export function sanitizePayloadForStorage(value: unknown): unknown {
+  if (typeof value === "string") {
+    return stripNullChars(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizePayloadForStorage(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        sanitizePayloadForStorage(item),
+      ]),
+    );
+  }
+  return value;
+}
+
+export function parsePayloadTextForStorage(text: string): unknown {
+  const sanitizedText = stripNullChars(text);
+  try {
+    return sanitizePayloadForStorage(JSON.parse(sanitizedText) as unknown);
+  } catch {
+    // Store non-JSON bodies as JSON strings to avoid drops.
+    return sanitizedText;
+  }
 }
 
 function buildClientOptions(
@@ -96,25 +129,20 @@ export function startMqttIngest(
   });
 
   client.on("message", (topic, buf) => {
-    const text = buf.toString("utf8");
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text) as unknown;
-    } catch {
-      // Store non-JSON bodies as JSON strings to avoid drops.
-      parsed = text;
-    }
+    const parsed = parsePayloadTextForStorage(buf.toString("utf8"));
+    const rawDeviceId = extractDeviceId(
+      topic,
+      parsed,
+      config.deviceIdTopicRegex,
+      config.deviceIdJsonKey,
+    );
+    const deviceId =
+      rawDeviceId === null ? null : stripNullChars(rawDeviceId) || null;
 
     const row: QueuedRow = {
       receivedAt: new Date(),
       topic,
-      deviceId: extractDeviceId(
-        topic,
-        parsed,
-        config.deviceIdTopicRegex,
-        config.deviceIdJsonKey,
-      ),
+      deviceId,
       payload: parsed,
     };
 
