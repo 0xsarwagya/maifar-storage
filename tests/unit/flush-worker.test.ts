@@ -86,4 +86,41 @@ describe("createFlushWorker (unit, mocked insert)", () => {
   test("respects MAX_FLUSH_ATTEMPTS constant", () => {
     expect(MAX_FLUSH_ATTEMPTS).toBe(8);
   });
+
+  test("isolates poison rows and inserts the remaining rows", async () => {
+    const inserted: string[] = [];
+    const sql = null as unknown as Sql;
+    const rows = sampleRows(3);
+    rows[1] = {
+      ...rows[1]!,
+      topic: "t/poison",
+      payload: { method: "lwt", online: "0\u0000" },
+    };
+    rows.forEach((row) => queue.enqueue(row));
+
+    const { flush } = createFlushWorker(sql, 10, {
+      insertBatch: async (_s, batch) => {
+        if (batch.length > 1) {
+          const err = new Error("unsupported Unicode escape sequence") as Error & {
+            code: string;
+          };
+          err.code = "22P05";
+          throw err;
+        }
+        if (batch[0]!.topic === "t/poison") {
+          const err = new Error("unsupported Unicode escape sequence") as Error & {
+            code: string;
+          };
+          err.code = "22P05";
+          throw err;
+        }
+        inserted.push(batch[0]!.topic);
+      },
+      sleep: async () => {},
+    });
+
+    await flush();
+    expect(inserted).toEqual(["t/0", "t/2"]);
+    expect(queue.depth()).toBe(0);
+  });
 });
