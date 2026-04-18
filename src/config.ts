@@ -202,6 +202,14 @@ export type AppConfig = {
   ovokIngestTimeoutMs: number;
   /** Use cron-based DB-driven forwarding instead of per-row forwarding. */
   ovokScheduledEnabled: boolean;
+  /** Enable cron-based MQTT query commands for missing telemetry values. */
+  mqttMissingValueQueryEnabled: boolean;
+  /** Cron expression (UTC) for missing telemetry query job. */
+  mqttMissingValueQueryCron: string;
+  /** Lookback window to consider telemetry "present", in milliseconds. */
+  mqttMissingValueQueryLookbackMs: number;
+  /** Persist MC01/Server command traffic to DB when true. */
+  storeServerTopics: boolean;
 };
 
 export function loadConfig(): AppConfig {
@@ -269,6 +277,22 @@ export function loadConfig(): AppConfig {
   const ovokScheduledEnabled = mqttTlsEnvTruthy(
     process.env.OVOK_SCHEDULED_ENABLED,
   );
+  const mqttMissingValueQueryEnabled = mqttTlsEnvTruthy(
+    process.env.MQTT_MISSING_VALUE_QUERY_ENABLED,
+  );
+  const mqttMissingValueQueryCron =
+    process.env.MQTT_MISSING_VALUE_QUERY_CRON?.trim() || "*/10 * * * *";
+  const mqttMissingValueQueryLookbackMs = Math.max(
+    60_000,
+    Number(process.env.MQTT_MISSING_VALUE_QUERY_LOOKBACK_MS ?? 3_600_000) ||
+      3_600_000,
+  );
+  const storeServerTopicsRaw = process.env.STORE_SERVER_TOPICS?.trim().toLowerCase();
+  const storeServerTopics =
+    storeServerTopicsRaw !== "false" &&
+    storeServerTopicsRaw !== "0" &&
+    storeServerTopicsRaw !== "no" &&
+    storeServerTopicsRaw !== "off";
 
   return {
     databaseUrl: requireEnv("DATABASE_URL"),
@@ -294,5 +318,9 @@ export function loadConfig(): AppConfig {
     ovokIngestApiKeyHeader,
     ovokIngestTimeoutMs,
     ovokScheduledEnabled,
+    mqttMissingValueQueryEnabled,
+    mqttMissingValueQueryCron,
+    mqttMissingValueQueryLookbackMs,
+    storeServerTopics,
   };
 }

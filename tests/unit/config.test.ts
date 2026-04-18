@@ -33,6 +33,10 @@ const keys = [
   "OVOK_INGEST_API_KEY_HEADER",
   "OVOK_INGEST_TIMEOUT_MS",
   "OVOK_SCHEDULED_ENABLED",
+  "MQTT_MISSING_VALUE_QUERY_ENABLED",
+  "MQTT_MISSING_VALUE_QUERY_CRON",
+  "MQTT_MISSING_VALUE_QUERY_LOOKBACK_MS",
+  "STORE_SERVER_TOPICS",
 ] as const;
 
 function snapshotEnv(): Record<string, string | undefined> {
@@ -74,6 +78,10 @@ describe("loadConfig", () => {
     delete process.env.OVOK_INGEST_API_KEY_HEADER;
     delete process.env.OVOK_INGEST_TIMEOUT_MS;
     delete process.env.OVOK_SCHEDULED_ENABLED;
+    delete process.env.MQTT_MISSING_VALUE_QUERY_ENABLED;
+    delete process.env.MQTT_MISSING_VALUE_QUERY_CRON;
+    delete process.env.MQTT_MISSING_VALUE_QUERY_LOOKBACK_MS;
+    delete process.env.STORE_SERVER_TOPICS;
   }
 
   test("parses required env and defaults", () => {
@@ -117,6 +125,10 @@ describe("loadConfig", () => {
     expect(c.ovokIngestApiKeyHeader).toBe("x-api-key");
     expect(c.ovokIngestTimeoutMs).toBe(10000);
     expect(c.ovokScheduledEnabled).toBe(false);
+    expect(c.mqttMissingValueQueryEnabled).toBe(false);
+    expect(c.mqttMissingValueQueryCron).toBe("*/10 * * * *");
+    expect(c.mqttMissingValueQueryLookbackMs).toBe(3600000);
+    expect(c.storeServerTopics).toBe(true);
   });
 
   test("trims topics and optional json key", () => {
@@ -377,6 +389,25 @@ describe("loadConfig", () => {
 
     const c = loadConfig();
     expect(c.ovokScheduledEnabled).toBe(true);
+  });
+
+  test("parses MQTT missing-value query and store-server toggles", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.MQTT_MISSING_VALUE_QUERY_ENABLED = "true";
+    process.env.MQTT_MISSING_VALUE_QUERY_CRON = "*/5 * * * *";
+    process.env.MQTT_MISSING_VALUE_QUERY_LOOKBACK_MS = "120000";
+    process.env.STORE_SERVER_TOPICS = "false";
+
+    const c = loadConfig();
+    expect(c.mqttMissingValueQueryEnabled).toBe(true);
+    expect(c.mqttMissingValueQueryCron).toBe("*/5 * * * *");
+    expect(c.mqttMissingValueQueryLookbackMs).toBe(120000);
+    expect(c.storeServerTopics).toBe(false);
   });
 
   test("MQTT_TLS_INSECURE=true disables TLS verification flag", () => {

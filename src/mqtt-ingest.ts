@@ -1499,6 +1499,7 @@ export function startMqttIngest(
     | "ovokIngestApiKey"
     | "ovokIngestApiKeyHeader"
     | "ovokIngestTimeoutMs"
+    | "storeServerTopics"
   >,
   requestFlush: () => void,
 ): MqttClient {
@@ -1538,6 +1539,9 @@ export function startMqttIngest(
   });
 
   client.on("message", (topic, buf) => {
+    if (!config.storeServerTopics && /^MC01\/Server\//i.test(topic)) {
+      return;
+    }
     const parsed = parsePayloadTextForStorage(buf.toString("utf8"));
     const receivedAt = new Date();
     const rawDeviceId = extractDeviceId(
