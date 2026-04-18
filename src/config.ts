@@ -200,6 +200,8 @@ export type AppConfig = {
   ovokIngestApiKeyHeader: string;
   /** HTTP timeout for Ovok ingest forwarding in ms. */
   ovokIngestTimeoutMs: number;
+  /** Use cron-based DB-driven forwarding instead of per-row forwarding. */
+  ovokScheduledEnabled: boolean;
 };
 
 export function loadConfig(): AppConfig {
@@ -264,6 +266,9 @@ export function loadConfig(): AppConfig {
     1000,
     Number(process.env.OVOK_INGEST_TIMEOUT_MS ?? 10_000) || 10_000,
   );
+  const ovokScheduledEnabled = mqttTlsEnvTruthy(
+    process.env.OVOK_SCHEDULED_ENABLED,
+  );
 
   return {
     databaseUrl: requireEnv("DATABASE_URL"),
@@ -288,5 +293,6 @@ export function loadConfig(): AppConfig {
     ovokIngestApiKey,
     ovokIngestApiKeyHeader,
     ovokIngestTimeoutMs,
+    ovokScheduledEnabled,
   };
 }

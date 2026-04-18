@@ -32,6 +32,7 @@ const keys = [
   "OVOK_INGEST_API_KEY",
   "OVOK_INGEST_API_KEY_HEADER",
   "OVOK_INGEST_TIMEOUT_MS",
+  "OVOK_SCHEDULED_ENABLED",
 ] as const;
 
 function snapshotEnv(): Record<string, string | undefined> {
@@ -72,6 +73,7 @@ describe("loadConfig", () => {
     delete process.env.OVOK_INGEST_API_KEY;
     delete process.env.OVOK_INGEST_API_KEY_HEADER;
     delete process.env.OVOK_INGEST_TIMEOUT_MS;
+    delete process.env.OVOK_SCHEDULED_ENABLED;
   }
 
   test("parses required env and defaults", () => {
@@ -114,6 +116,7 @@ describe("loadConfig", () => {
     expect(c.ovokIngestApiKey).toBeUndefined();
     expect(c.ovokIngestApiKeyHeader).toBe("x-api-key");
     expect(c.ovokIngestTimeoutMs).toBe(10000);
+    expect(c.ovokScheduledEnabled).toBe(false);
   });
 
   test("trims topics and optional json key", () => {
@@ -361,6 +364,19 @@ describe("loadConfig", () => {
 
     const c = loadConfig();
     expect(c.autoMigrate).toBe(false);
+  });
+
+  test("OVOK_SCHEDULED_ENABLED=true enables cron forwarding mode", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.OVOK_SCHEDULED_ENABLED = "true";
+
+    const c = loadConfig();
+    expect(c.ovokScheduledEnabled).toBe(true);
   });
 
   test("MQTT_TLS_INSECURE=true disables TLS verification flag", () => {

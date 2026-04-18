@@ -3,6 +3,7 @@ import { loadConfig, type AppConfig } from "./config";
 import { createDb, type Sql } from "./db";
 import { createFlushWorker } from "./flush-worker";
 import { forwardNormalizedPayloadToOvok, startMqttIngest } from "./mqtt-ingest";
+import { startOvokScheduledForwarding } from "./ovok-scheduler";
 import * as queue from "./queue";
 import type { FlushWorkerDeps } from "./flush-worker";
 import type { MqttClient } from "mqtt";
@@ -33,6 +34,7 @@ export function createApp(options: CreateAppOptions = {}): AppInstance {
       if (options.flushDeps?.afterBatchInserted) {
         await options.flushDeps.afterBatchInserted(rows);
       }
+      if (config.ovokScheduledEnabled) return;
       await Promise.all(
         rows.map((row) =>
           forwardNormalizedPayloadToOvok(row.topic, row.payload, config),
@@ -44,6 +46,7 @@ export function createApp(options: CreateAppOptions = {}): AppInstance {
   const mqttClient = startMqttIngest(config, () => {
     void flush();
   });
+  const ovokScheduler = startOvokScheduledForwarding(sql, config);
 
   const flushTimer = setInterval(() => {
     void flush();
@@ -61,6 +64,7 @@ export function createApp(options: CreateAppOptions = {}): AppInstance {
 
   async function stop(): Promise<void> {
     clearInterval(flushTimer);
+    ovokScheduler.stop();
     mqttClient.end(true);
     await flush();
     await sql.end({ timeout: 5 });
