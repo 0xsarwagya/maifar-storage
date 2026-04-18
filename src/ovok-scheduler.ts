@@ -166,6 +166,34 @@ function applyInvalidValue(observation: JsonRecord, kind: ObservationKind): void
   }
 }
 
+function enforceCanonicalCoding(observation: JsonRecord, kind: ObservationKind): void {
+  const coding =
+    kind === "presenceRealtime" || kind === "presenceBatch"
+      ? {
+          system: "https://sleepiz.com/fhir/CodeSystem/observation-codes",
+          code: "presence-detection",
+          display: "Presence",
+        }
+      : kind === "sleepRealtime" || kind === "sleepBatch"
+        ? {
+            system: "http://loinc.org",
+            code: "107145-5",
+            display: "Sleep status",
+          }
+        : kind === "heartRateRealtime" || kind === "heartRateBatch"
+          ? {
+              system: "http://loinc.org",
+              code: "8867-4",
+              display: "Heart rate",
+            }
+          : {
+              system: "http://loinc.org",
+              code: "9279-1",
+              display: "Breathing rate",
+            };
+  observation.code = { coding: [coding] };
+}
+
 export function hasPresenceSignal(payload: unknown): boolean {
   if (!isObjectRecord(payload)) return false;
   if (payload.resourceType !== "Observation") return false;
@@ -266,6 +294,7 @@ export function buildInvalidObservationForKind(
       ? deepClone(template)
       : buildFallbackObservation(kind, deviceId);
   setEffectiveFields(observation, kind, window);
+  enforceCanonicalCoding(observation, kind);
   applyInvalidValue(observation, kind);
   return observation;
 }

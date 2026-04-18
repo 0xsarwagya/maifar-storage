@@ -103,6 +103,7 @@ describe("buildInvalidObservationForKind", () => {
       "sleepRealtime",
       {
         resourceType: "Observation",
+        code: { coding: [{ code: "sleep-status" }] },
         valueSampledData: { data: "1" },
         valueString: "awake",
       },
@@ -115,6 +116,9 @@ describe("buildInvalidObservationForKind", () => {
 
     expect(payload.valueString).toBe("invalid");
     expect((payload.valueSampledData as Record<string, unknown>).data).toBe("-1");
+    expect((payload.code as { coding: Array<{ code: string }> }).coding[0]?.code).toBe(
+      "107145-5",
+    );
     expect(payload.effectiveInstant).toBe("2026-01-01T00:10:00.000Z");
     expect(payload.effectivePeriod).toBeUndefined();
   });
