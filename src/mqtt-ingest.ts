@@ -41,6 +41,36 @@ function isFhirObservationOrBundle(payload: unknown): payload is JsonRecord {
   );
 }
 
+function toMc01DeviceReference(reference: string): string {
+  const trimmed = reference.trim();
+  if (!trimmed) return reference;
+  const rawId = trimmed.startsWith("Device/") ? trimmed.slice("Device/".length) : trimmed;
+  const normalizedId = rawId.startsWith("MC01-") ? rawId : `MC01-${rawId}`;
+  return `Device/${normalizedId}`;
+}
+
+function mapDeviceReferenceForOvok(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((entry) => mapDeviceReferenceForOvok(entry));
+  if (!isObjectRecord(value)) return value;
+
+  const out: JsonRecord = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (
+      key === "device" &&
+      isObjectRecord(child) &&
+      typeof child.reference === "string"
+    ) {
+      out[key] = {
+        ...child,
+        reference: toMc01DeviceReference(child.reference),
+      };
+      continue;
+    }
+    out[key] = mapDeviceReferenceForOvok(child);
+  }
+  return out;
+}
+
 export function resolveOvokIngestUrl(baseUrl: string, payload: unknown): string | null {
   if (!isFhirObservationOrBundle(payload)) return null;
   const path =
@@ -63,7 +93,8 @@ export async function forwardNormalizedPayloadToOvok(
   if (config.ovokIngestApiKey) {
     headers[config.ovokIngestApiKeyHeader] = config.ovokIngestApiKey;
   }
-  const body = JSON.stringify(payload);
+  const ovokPayload = mapDeviceReferenceForOvok(payload);
+  const body = JSON.stringify(ovokPayload);
   const bodyBytes = Buffer.byteLength(body, "utf8");
 
   let response: Response;
@@ -1276,9 +1307,9 @@ export function normalizePayloadForStorage(
         code: {
           coding: [
             {
-              system: "https://sleepiz.com/fhir/CodeSystem/observation-codes",
-              code: "sleep-status",
-              display: "Sleep Status",
+              system: "http://loinc.org",
+              code: "107145-5",
+              display: "Sleep status",
             },
           ],
         },

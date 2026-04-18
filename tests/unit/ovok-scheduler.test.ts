@@ -38,6 +38,13 @@ describe("classifyScheduledPayloadKind", () => {
         },
       }),
     ).toBe("heartRateBatch");
+    expect(
+      classifyScheduledPayloadKind({
+        resourceType: "Observation",
+        code: { coding: [{ code: "107145-5" }] },
+        effectiveInstant: "2026-01-01T00:00:00.000Z",
+      }),
+    ).toBe("sleepRealtime");
   });
 });
 
@@ -63,6 +70,23 @@ describe("buildInvalidObservationForKind", () => {
       {
         resourceType: "Observation",
         valueSampledData: { data: "1" },
+      },
+      "dev-1",
+      {
+        start: new Date("2026-01-01T00:00:00.000Z"),
+        end: new Date("2026-01-01T00:00:30.000Z"),
+      },
+    );
+
+    expect((payload.valueSampledData as Record<string, unknown>).data).toBe("0");
+  });
+
+  test("forces presence zero even when template lacks sampled data", () => {
+    const payload = buildInvalidObservationForKind(
+      "presenceRealtime",
+      {
+        resourceType: "Observation",
+        code: { coding: [{ code: "presence-detection" }] },
       },
       "dev-1",
       {

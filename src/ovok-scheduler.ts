@@ -88,7 +88,9 @@ export function classifyScheduledPayloadKind(payload: unknown): ScheduledPayload
     return hasInstant ? "sleepRealtime" : null;
   }
   if (code === "107145-5") {
-    return hasPeriod ? "sleepBatch" : null;
+    if (hasInstant) return "sleepRealtime";
+    if (hasPeriod) return "sleepBatch";
+    return null;
   }
   if (code === "8867-4") {
     if (hasInstant) return "heartRateRealtime";
@@ -121,11 +123,34 @@ function setEffectiveFields(
 }
 
 function applyInvalidValue(observation: JsonRecord, kind: ObservationKind): void {
-  const sampledData = observation.valueSampledData;
-  if (isObjectRecord(sampledData)) {
-    sampledData.data =
-      kind === "sleepRealtime" ? "-1" : kind.startsWith("presence") ? "0" : "E";
-  }
+  const sampledPeriod =
+    kind === "presenceRealtime"
+      ? PRESENCE_REALTIME_PERIOD_MS
+      : kind === "sleepRealtime"
+        ? SLEEP_REALTIME_PERIOD_MS
+        : kind === "heartRateRealtime" || kind === "breathingRateRealtime"
+          ? VITALS_REALTIME_PERIOD_MS
+          : kind === "presenceBatch"
+            ? PRESENCE_BATCH_PERIOD_MS
+            : kind === "sleepBatch"
+              ? SLEEP_BATCH_PERIOD_MS
+              : DAILY_BATCH_PERIOD_MS;
+  const sampledData = isObjectRecord(observation.valueSampledData)
+    ? observation.valueSampledData
+    : {
+        origin: {
+          value: 0,
+          unit: "1",
+          system: "http://unitsofmeasure.org",
+          code: "1",
+        },
+        period: sampledPeriod,
+        factor: 1,
+        dimensions: 1,
+      };
+  sampledData.data =
+    kind === "sleepRealtime" ? "-1" : kind.startsWith("presence") ? "0" : "E";
+  observation.valueSampledData = sampledData;
 
   if (kind === "sleepRealtime") {
     observation.valueString = "invalid";
@@ -195,20 +220,16 @@ function buildFallbackObservation(kind: ObservationKind, deviceId: string): Json
             ? "8867-4"
             : isBr
               ? "9279-1"
-              : isSleepBatch
+              : isSleepBatch || isSleepRealtime
                 ? "107145-5"
-                : isSleepRealtime
-                  ? "sleep-status"
-                  : "presence-detection",
+                : "presence-detection",
           display: isHr
             ? "Heart rate"
             : isBr
               ? "Respiratory rate"
-              : isSleepBatch
+              : isSleepBatch || isSleepRealtime
                 ? "Sleep status"
-                : isSleepRealtime
-                  ? "Sleep Status"
-                  : "Presence",
+                : "Presence",
         },
       ],
     },

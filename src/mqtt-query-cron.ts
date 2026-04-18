@@ -4,46 +4,102 @@ import type { AppConfig } from "./config";
 import type { Sql } from "./db";
 
 type QueryTarget = {
-  telemetryKey: string;
   commandKey: string;
-  commandValue: string;
+  method: "get" | "set";
+  commandValue?: string;
 };
 
 const QUERY_TARGETS: QueryTarget[] = [
   {
-    telemetryKey: "someoneExists",
+    commandKey: "HeartRateGet",
+    method: "get",
+  },
+  {
     commandKey: "SomeoneExistsGet",
-    commandValue: "1",
+    method: "get",
   },
   {
-    telemetryKey: "heartRateValue",
     commandKey: "HeartRateValueGet",
+    method: "get",
+  },
+  {
+    commandKey: "BreathRateGet",
+    method: "get",
+  },
+  {
+    commandKey: "HeartRateValueGet",
+    method: "set",
     commandValue: "1",
   },
   {
-    telemetryKey: "breathValue",
     commandKey: "BreathValueGet",
+    method: "get",
+  },
+  {
+    commandKey: "BreathValueGet",
+    method: "set",
     commandValue: "1",
   },
   {
-    telemetryKey: "sleepStatus",
     commandKey: "SleepStatusGet",
+    method: "get",
+  },
+  {
+    commandKey: "SleepStatusGet",
+    method: "set",
     commandValue: "1",
   },
   {
-    telemetryKey: "humanPosition",
+    commandKey: "SleepComprehensiveStatusGet",
+    method: "get",
+  },
+  {
     commandKey: "HumanPositionGet",
+    method: "get",
+  },
+  {
+    commandKey: "HumanPositionGet",
+    method: "set",
     commandValue: "1",
   },
   {
-    telemetryKey: "humanDistance",
     commandKey: "HumanDistanceGet",
+    method: "get",
+  },
+  {
+    commandKey: "HumanDistanceGet",
+    method: "set",
     commandValue: "1",
   },
   {
-    telemetryKey: "motionStatus",
     commandKey: "MotionStatusGet",
+    method: "get",
+  },
+  {
+    commandKey: "MotionStatusGet",
+    method: "set",
     commandValue: "1",
+  },
+  {
+    commandKey: "MovementSignsGet",
+    method: "get",
+  },
+  {
+    commandKey: "LocationOutOfBoundsGet",
+    method: "get",
+  },
+  {
+    commandKey: "GetIntoBedGet",
+    method: "get",
+  },
+  {
+    commandKey: "BreathInformGet",
+    method: "get",
+  },
+  {
+    commandKey: "LightLimitGet",
+    method: "set",
+    commandValue: "[60,60,60,60]",
   },
 ];
 
@@ -80,25 +136,6 @@ async function fetchDeviceIds(sql: Sql): Promise<string[]> {
   return rows.map((row) => row.deviceId);
 }
 
-async function hasRecentTelemetry(
-  sql: Sql,
-  deviceId: string,
-  telemetryKey: string,
-  from: Date,
-): Promise<boolean> {
-  const rows = await sql<{ found: boolean }[]>`
-    select exists(
-      select 1
-      from device_messages
-      where device_id = ${deviceId}
-        and topic like 'MC01/Client/%'
-        and received_at >= ${from}
-        and payload ? ${telemetryKey}
-    ) as found
-  `;
-  return rows[0]?.found ?? false;
-}
-
 export function startMqttMissingValueQueryCron(
   sql: Sql,
   mqttClient: MqttClient,
@@ -119,30 +156,23 @@ export function startMqttMissingValueQueryCron(
       console.log("[mqtt-query] skip broker disconnected");
       return;
     }
-    const from = new Date(Date.now() - config.mqttMissingValueQueryLookbackMs);
     const deviceIds = await fetchDeviceIds(sql);
     for (const deviceId of deviceIds) {
       for (const target of QUERY_TARGETS) {
-        const present = await hasRecentTelemetry(
-          sql,
-          deviceId,
-          target.telemetryKey,
-          from,
-        );
-        if (present) continue;
         const topic = `MC01/Server/${deviceId}`;
-        const payload = JSON.stringify({
-          method: "set",
-          [target.commandKey]: target.commandValue,
-        });
+        const payloadBody: Record<string, string> = {
+          method: target.method,
+          [target.commandKey]: target.commandValue ?? "",
+        };
+        const payload = JSON.stringify(payloadBody);
         try {
           await publishCommand(mqttClient, topic, payload);
           console.log(
-            `[mqtt-query] sent device_id=${deviceId} command=${target.commandKey}`,
+            `[mqtt-query] sent device_id=${deviceId} method=${target.method} command=${target.commandKey}`,
           );
         } catch (error) {
           console.error(
-            `[mqtt-query] publish failed device_id=${deviceId} command=${target.commandKey}`,
+            `[mqtt-query] publish failed device_id=${deviceId} method=${target.method} command=${target.commandKey}`,
             error,
           );
         }
@@ -170,7 +200,7 @@ export function startMqttMissingValueQueryCron(
   );
 
   console.log(
-    `[mqtt-query] enabled cron="${config.mqttMissingValueQueryCron}" lookback_ms=${config.mqttMissingValueQueryLookbackMs}`,
+    `[mqtt-query] enabled cron="${config.mqttMissingValueQueryCron}" lookback_ms=${config.mqttMissingValueQueryLookbackMs} poll_mode=continuous`,
   );
 
   return {

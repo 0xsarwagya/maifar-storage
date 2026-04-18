@@ -152,7 +152,7 @@ describe("mqtt ingest sleep status normalization", () => {
       ).data,
     ).toBe("1");
     expect((out.code as { coding: Array<{ code: string }> }).coding[0]?.code).toBe(
-      "sleep-status",
+      "107145-5",
     );
     expect((out.valueSampledData as { period: number }).period).toBe(600000);
   });
@@ -592,9 +592,53 @@ describe("mqtt ingest ovok forwarding", () => {
     expect((calls[0]?.init?.headers as Record<string, string>)["x-api-key"]).toBe(
       "secret",
     );
+    const sentBody = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+    expect(
+      (sentBody.device as { reference?: string } | undefined)?.reference,
+    ).toBeUndefined();
     const metrics = getOvokForwardMetricsSnapshot();
     expect(metrics.requests_sent_total).toBe(1);
     expect(metrics.requests_failed_total).toBe(0);
     expect(metrics.bytes_sent_total).toBeGreaterThan(10);
+  });
+
+  test("rewrites device references to Device/MC01-deviceId before forwarding", async () => {
+    resetOvokForwardMetricsForTests();
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response("", { status: 202 });
+    }) as typeof fetch;
+
+    try {
+      await forwardNormalizedPayloadToOvok(
+        "devices/acme-1/presence",
+        {
+          resourceType: "Bundle",
+          entry: [
+            { resource: { resourceType: "Observation", device: { reference: "Device/200d3d2c0109" } } },
+            { resource: { resourceType: "Observation", device: { reference: "200d3d2c011f" } } },
+            { resource: { resourceType: "Observation", device: { reference: "Device/MC01-200d3d2c011a" } } },
+          ],
+        },
+        {
+          ovokIngestEnabled: true,
+          ovokIngestBaseUrl: "https://api.dev.ovok.com",
+          ovokIngestApiKey: undefined,
+          ovokIngestApiKeyHeader: "x-api-key",
+          ovokIngestTimeoutMs: 10000,
+        },
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    const sentBody = JSON.parse(String(calls[0]?.init?.body)) as {
+      entry: Array<{ resource: { device: { reference: string } } }>;
+    };
+    expect(sentBody.entry[0]?.resource.device.reference).toBe("Device/MC01-200d3d2c0109");
+    expect(sentBody.entry[1]?.resource.device.reference).toBe("Device/MC01-200d3d2c011f");
+    expect(sentBody.entry[2]?.resource.device.reference).toBe("Device/MC01-200d3d2c011a");
   });
 });
