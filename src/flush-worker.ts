@@ -14,6 +14,8 @@ export type FlushWorkerDeps = {
   sleep?: (ms: number) => Promise<void>;
   /** Override batch insert (used by tests). */
   insertBatch?: (sql: Sql, rows: QueuedRow[]) => Promise<void>;
+  /** Called after rows are successfully inserted. */
+  afterBatchInserted?: (rows: QueuedRow[]) => Promise<void> | void;
 };
 
 type InsertOutcome = "inserted" | "dropped" | "requeued";
@@ -44,11 +46,17 @@ async function insertSingleRowWithRetries(
   row: QueuedRow,
   insertBatch: (sql: Sql, rows: QueuedRow[]) => Promise<void>,
   sleep: (ms: number) => Promise<void>,
+  afterBatchInserted: (rows: QueuedRow[]) => Promise<void> | void,
 ): Promise<InsertOutcome> {
   let attempt = 0;
   while (attempt < MAX_FLUSH_ATTEMPTS) {
     try {
       await insertBatch(sql, [row]);
+      try {
+        await afterBatchInserted([row]);
+      } catch (callbackErr) {
+        console.error("[flush] afterBatchInserted callback failed:", callbackErr);
+      }
       return "inserted";
     } catch (err) {
       if (isPoisonRowError(err)) {
@@ -82,6 +90,7 @@ async function isolateBatchRows(
   rows: QueuedRow[],
   insertBatch: (sql: Sql, rows: QueuedRow[]) => Promise<void>,
   sleep: (ms: number) => Promise<void>,
+  afterBatchInserted: (rows: QueuedRow[]) => Promise<void> | void,
 ): Promise<void> {
   console.error(
     `[flush] isolating poison row inside batch of ${rows.length} rows`,
@@ -93,6 +102,7 @@ async function isolateBatchRows(
       rows[i]!,
       insertBatch,
       sleep,
+      afterBatchInserted,
     );
     if (outcome === "requeued") {
       const remaining = rows.slice(i);
@@ -113,6 +123,7 @@ export function createFlushWorker(
 ) {
   const sleep = deps.sleep ?? defaultSleep;
   const insertBatch = deps.insertBatch ?? defaultInsertBatch;
+  const afterBatchInserted = deps.afterBatchInserted ?? (() => {});
   let chain: Promise<void> = Promise.resolve();
 
   async function flushOnce(): Promise<void> {
@@ -123,10 +134,15 @@ export function createFlushWorker(
     while (attempt < MAX_FLUSH_ATTEMPTS) {
       try {
         await insertBatch(sql, batch);
+        try {
+          await afterBatchInserted(batch);
+        } catch (callbackErr) {
+          console.error("[flush] afterBatchInserted callback failed:", callbackErr);
+        }
         return;
       } catch (err) {
         if (isPoisonRowError(err)) {
-          await isolateBatchRows(sql, batch, insertBatch, sleep);
+          await isolateBatchRows(sql, batch, insertBatch, sleep, afterBatchInserted);
           return;
         }
         attempt += 1;

@@ -87,6 +87,26 @@ describe("createFlushWorker (unit, mocked insert)", () => {
     expect(MAX_FLUSH_ATTEMPTS).toBe(8);
   });
 
+  test("calls afterBatchInserted only after successful insert", async () => {
+    const sql = null as unknown as Sql;
+    const row = sampleRows(1)[0]!;
+    queue.enqueue(row);
+    const delivered: string[] = [];
+
+    const { flush } = createFlushWorker(sql, 10, {
+      insertBatch: async () => {
+        // success
+      },
+      afterBatchInserted: async (rows) => {
+        delivered.push(rows[0]!.topic);
+      },
+      sleep: async () => {},
+    });
+
+    await flush();
+    expect(delivered).toEqual([row.topic]);
+  });
+
   test("isolates poison rows and inserts the remaining rows", async () => {
     const inserted: string[] = [];
     const sql = null as unknown as Sql;

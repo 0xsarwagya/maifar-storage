@@ -27,6 +27,11 @@ const keys = [
   "DEVICE_ID_TOPIC_REGEX",
   "DEVICE_ID_JSON_KEY",
   "SKIP_DEVICE_ID_PREFIXES",
+  "OVOK_INGEST_ENABLED",
+  "OVOK_INGEST_BASE_URL",
+  "OVOK_INGEST_API_KEY",
+  "OVOK_INGEST_API_KEY_HEADER",
+  "OVOK_INGEST_TIMEOUT_MS",
 ] as const;
 
 function snapshotEnv(): Record<string, string | undefined> {
@@ -62,6 +67,11 @@ describe("loadConfig", () => {
     delete process.env.MQTT_TLS_INSECURE;
     delete process.env.MQTT_TLS_REJECT_UNAUTHORIZED;
     delete process.env.MQTT_TLS_CA_FILE;
+    delete process.env.OVOK_INGEST_ENABLED;
+    delete process.env.OVOK_INGEST_BASE_URL;
+    delete process.env.OVOK_INGEST_API_KEY;
+    delete process.env.OVOK_INGEST_API_KEY_HEADER;
+    delete process.env.OVOK_INGEST_TIMEOUT_MS;
   }
 
   test("parses required env and defaults", () => {
@@ -99,6 +109,11 @@ describe("loadConfig", () => {
     expect(c.mqttTlsCa).toBeUndefined();
     expect(c.databaseTlsRejectUnauthorized).toBe(true);
     expect(c.databaseTlsCa).toBeUndefined();
+    expect(c.ovokIngestEnabled).toBe(false);
+    expect(c.ovokIngestBaseUrl).toBe("https://api.dev.ovok.com");
+    expect(c.ovokIngestApiKey).toBeUndefined();
+    expect(c.ovokIngestApiKeyHeader).toBe("x-api-key");
+    expect(c.ovokIngestTimeoutMs).toBe(10000);
   });
 
   test("trims topics and optional json key", () => {

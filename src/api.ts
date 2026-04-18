@@ -13,6 +13,7 @@ import {
   rowToApi,
   type CursorPayload,
 } from "./format";
+import { getOvokForwardMetricsSnapshot } from "./ovok-forward-metrics";
 
 const EXPORT_PAGE = 500;
 
@@ -123,6 +124,16 @@ export function createFetchHandler(sql: Sql, getQueueDepth: () => number) {
           ok: true,
           database,
           queue_depth: getQueueDepth(),
+          ovok_forward: getOvokForwardMetricsSnapshot(),
+        }),
+      );
+    }
+
+    if (path === "/metrics") {
+      return withCors(
+        req,
+        Response.json({
+          ovok_forward: getOvokForwardMetricsSnapshot(),
         }),
       );
     }
@@ -138,6 +149,7 @@ export function createFetchHandler(sql: Sql, getQueueDepth: () => number) {
           redoc: "/redoc",
           openapi: "/openapi.json",
           health: "/health",
+          metrics: "/metrics",
         }),
       );
     }

@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { Sql } from "../../src/db";
 import { createFetchHandler } from "../../src/api";
+import {
+  recordOvokForwardFailure,
+  recordOvokForwardSuccess,
+  resetOvokForwardMetricsForTests,
+} from "../../src/ovok-forward-metrics";
 
 describe("createFetchHandler", () => {
   test("OPTIONS /health returns 204 with CORS", async () => {
@@ -228,5 +233,27 @@ describe("createFetchHandler", () => {
     expect(data.items.length).toBe(1);
     expect(data.items[0]!.id).toBe("1");
     expect(data.next_cursor).toBeNull();
+  });
+
+  test("GET /metrics returns ovok forwarding counters", async () => {
+    resetOvokForwardMetricsForTests();
+    recordOvokForwardSuccess(120);
+    recordOvokForwardFailure(40);
+
+    const handler = createFetchHandler(null as unknown as Sql, () => 0);
+    const res = await handler(new Request("http://localhost/metrics"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ovok_forward: {
+        requests_sent_total: number;
+        requests_failed_total: number;
+        bytes_sent_total: number;
+        bytes_failed_total: number;
+      };
+    };
+    expect(body.ovok_forward.requests_sent_total).toBe(1);
+    expect(body.ovok_forward.requests_failed_total).toBe(1);
+    expect(body.ovok_forward.bytes_sent_total).toBe(120);
+    expect(body.ovok_forward.bytes_failed_total).toBe(40);
   });
 });

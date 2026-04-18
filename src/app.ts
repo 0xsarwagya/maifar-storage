@@ -2,7 +2,7 @@ import { createFetchHandler } from "./api";
 import { loadConfig, type AppConfig } from "./config";
 import { createDb, type Sql } from "./db";
 import { createFlushWorker } from "./flush-worker";
-import { startMqttIngest } from "./mqtt-ingest";
+import { forwardNormalizedPayloadToOvok, startMqttIngest } from "./mqtt-ingest";
 import * as queue from "./queue";
 import type { FlushWorkerDeps } from "./flush-worker";
 import type { MqttClient } from "mqtt";
@@ -27,7 +27,19 @@ export type CreateAppOptions = {
 export function createApp(options: CreateAppOptions = {}): AppInstance {
   const config = loadConfig();
   const sql = createDb(config.databaseUrl, config);
-  const { flush } = createFlushWorker(sql, config.batchMax, options.flushDeps ?? {});
+  const { flush } = createFlushWorker(sql, config.batchMax, {
+    ...options.flushDeps,
+    afterBatchInserted: async (rows) => {
+      if (options.flushDeps?.afterBatchInserted) {
+        await options.flushDeps.afterBatchInserted(rows);
+      }
+      await Promise.all(
+        rows.map((row) =>
+          forwardNormalizedPayloadToOvok(row.topic, row.payload, config),
+        ),
+      );
+    },
+  });
 
   const mqttClient = startMqttIngest(config, () => {
     void flush();

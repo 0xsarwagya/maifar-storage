@@ -190,6 +190,16 @@ export type AppConfig = {
   deviceIdJsonKey?: string;
   /** Comma-separated prefixes; matching device ids are skipped before storage. */
   skipDeviceIdPrefixes: string[];
+  /** Forward normalized FHIR payloads to Ovok ingest API. */
+  ovokIngestEnabled: boolean;
+  /** Ovok ingest base URL (no trailing slash). */
+  ovokIngestBaseUrl: string;
+  /** Optional API key for Ovok ingest API. */
+  ovokIngestApiKey?: string;
+  /** Header name for API key when `ovokIngestApiKey` is set. */
+  ovokIngestApiKeyHeader: string;
+  /** HTTP timeout for Ovok ingest forwarding in ms. */
+  ovokIngestTimeoutMs: number;
 };
 
 export function loadConfig(): AppConfig {
@@ -243,6 +253,17 @@ export function loadConfig(): AppConfig {
     autoMigrateRaw !== "off";
 
   const databaseTls = loadDatabaseTlsFromEnv();
+  const ovokIngestEnabled = mqttTlsEnvTruthy(process.env.OVOK_INGEST_ENABLED);
+  const ovokIngestBaseUrlRaw =
+    process.env.OVOK_INGEST_BASE_URL?.trim() || "https://api.dev.ovok.com";
+  const ovokIngestBaseUrl = ovokIngestBaseUrlRaw.replace(/\/+$/, "");
+  const ovokIngestApiKey = process.env.OVOK_INGEST_API_KEY?.trim() || undefined;
+  const ovokIngestApiKeyHeader =
+    process.env.OVOK_INGEST_API_KEY_HEADER?.trim() || "x-api-key";
+  const ovokIngestTimeoutMs = Math.max(
+    1000,
+    Number(process.env.OVOK_INGEST_TIMEOUT_MS ?? 10_000) || 10_000,
+  );
 
   return {
     databaseUrl: requireEnv("DATABASE_URL"),
@@ -262,5 +283,10 @@ export function loadConfig(): AppConfig {
     deviceIdTopicRegex,
     deviceIdJsonKey: jsonKey || undefined,
     skipDeviceIdPrefixes,
+    ovokIngestEnabled,
+    ovokIngestBaseUrl,
+    ovokIngestApiKey,
+    ovokIngestApiKeyHeader,
+    ovokIngestTimeoutMs,
   };
 }
