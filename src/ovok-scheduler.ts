@@ -141,6 +141,19 @@ function applyInvalidValue(observation: JsonRecord, kind: ObservationKind): void
   }
 }
 
+export function hasPresenceSignal(payload: unknown): boolean {
+  if (!isObjectRecord(payload)) return false;
+  if (payload.resourceType !== "Observation") return false;
+  const sampled = payload.valueSampledData;
+  if (!isObjectRecord(sampled) || typeof sampled.data !== "string") return false;
+  const tokens = sampled.data
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (tokens.length === 0) return false;
+  return tokens.some((token) => token === "0" || token === "1");
+}
+
 function buildFallbackObservation(kind: ObservationKind, deviceId: string): JsonRecord {
   const isHr = kind === "heartRateRealtime" || kind === "heartRateBatch";
   const isBr = kind === "breathingRateRealtime" || kind === "breathingRateBatch";
@@ -303,7 +316,7 @@ async function sendPerDeviceKind(params: {
   const { sql, config, deviceIds, kind, window } = params;
   for (const deviceId of deviceIds) {
     const latest = await selectLatestPayloadForKind(sql, deviceId, kind, window);
-    if (latest) {
+    if (latest && (!kind.startsWith("presence") || hasPresenceSignal(latest))) {
       await forwardNormalizedPayloadToOvok(
         `scheduler/${kind}/${deviceId}`,
         latest,

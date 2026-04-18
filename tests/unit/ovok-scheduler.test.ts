@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildInvalidObservationForKind,
   classifyScheduledPayloadKind,
+  hasPresenceSignal,
 } from "../../src/ovok-scheduler";
 
 describe("classifyScheduledPayloadKind", () => {
@@ -41,6 +42,21 @@ describe("classifyScheduledPayloadKind", () => {
 });
 
 describe("buildInvalidObservationForKind", () => {
+  test("treats E-only presence sampled data as missing signal", () => {
+    expect(
+      hasPresenceSignal({
+        resourceType: "Observation",
+        valueSampledData: { data: "E E E" },
+      }),
+    ).toBe(false);
+    expect(
+      hasPresenceSignal({
+        resourceType: "Observation",
+        valueSampledData: { data: "0 E 1" },
+      }),
+    ).toBe(true);
+  });
+
   test("uses zero for invalid presence fallback", () => {
     const payload = buildInvalidObservationForKind(
       "presenceRealtime",
