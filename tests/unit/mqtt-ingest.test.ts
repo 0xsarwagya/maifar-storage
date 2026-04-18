@@ -111,6 +111,20 @@ describe("mqtt ingest presence normalization", () => {
     );
     expect(out).toEqual(payload);
   });
+
+  test("normalizes MC01 someoneExists presence field", () => {
+    const out = normalizePayloadForStorage(
+      "MC01/Client/200d3d2c0109",
+      { method: "post", someoneExists: "1" },
+      "200d3d2c0109",
+      new Date("2026-04-18T14:00:00.000Z"),
+    ) as Record<string, unknown>;
+    expect(out.resourceType).toBe("Observation");
+    expect((out.code as { coding: Array<{ code: string }> }).coding[0]?.code).toBe(
+      "presence-detection",
+    );
+    expect((out.valueSampledData as { data: string }).data).toBe("1");
+  });
 });
 
 describe("mqtt ingest sleep status normalization", () => {
@@ -241,6 +255,38 @@ describe("mqtt ingest realtime HR/BR normalization", () => {
         }
       ).reference,
     ).toBe("Device/2500001");
+  });
+
+  test("normalizes MC01-style heartRateValue and breathValue payload keys", () => {
+    const hr = normalizePayloadForStorage(
+      "MC01/Client/200d3d2c0109",
+      {
+        method: "post",
+        heartRateValue: 72,
+      },
+      "200d3d2c0109",
+      new Date("2026-04-18T14:00:00.000Z"),
+    ) as Record<string, unknown>;
+
+    expect((hr.code as { coding: Array<{ code: string }> }).coding[0]?.code).toBe(
+      "8867-4",
+    );
+    expect((hr.valueSampledData as { data: string }).data).toBe("72");
+
+    const br = normalizePayloadForStorage(
+      "MC01/Client/200d3d2c0109",
+      {
+        method: "post",
+        breathValue: 15,
+      },
+      "200d3d2c0109",
+      new Date("2026-04-18T14:00:05.000Z"),
+    ) as Record<string, unknown>;
+
+    expect((br.code as { coding: Array<{ code: string }> }).coding[0]?.code).toBe(
+      "9279-1",
+    );
+    expect((br.valueSampledData as { data: string }).data).toBe("15");
   });
 });
 

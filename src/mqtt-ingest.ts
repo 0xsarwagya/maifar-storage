@@ -187,12 +187,20 @@ function looksLikePresencePayload(topic: string, payload: JsonRecord): boolean {
     "presence" in payload ||
     "present" in payload ||
     "occupancy" in payload ||
-    "presenceDetected" in payload
+    "presenceDetected" in payload ||
+    "someoneExists" in payload
   );
 }
 
 function extractPresenceValue(payload: JsonRecord): "1" | "0" | null {
-  const keys = ["presence", "present", "occupancy", "presenceDetected", "value"];
+  const keys = [
+    "presence",
+    "present",
+    "occupancy",
+    "presenceDetected",
+    "someoneExists",
+    "value",
+  ];
   for (const key of keys) {
     const normalized = normalizePresenceValue(payload[key]);
     if (normalized !== null) return normalized;
@@ -866,6 +874,7 @@ function looksLikeHeartRatePayload(topic: string, payload: JsonRecord): boolean 
     "hr" in payload ||
     "heartRate" in payload ||
     "heart_rate" in payload ||
+    "heartRateValue" in payload ||
     "realtime_hr" in payload
   );
 }
@@ -879,6 +888,7 @@ function looksLikeBreathingRatePayload(topic: string, payload: JsonRecord): bool
     "rr" in payload ||
     "breathingRate" in payload ||
     "breathing_rate" in payload ||
+    "breathValue" in payload ||
     "respiratoryRate" in payload ||
     "respiratory_rate" in payload ||
     "realtime_br" in payload
@@ -1104,6 +1114,7 @@ export function normalizePayloadForStorage(
       "hr",
       "heartRate",
       "heart_rate",
+      "heartRateValue",
       "realtime_hr",
       "batch_hr",
       "batchHr",
@@ -1142,6 +1153,7 @@ export function normalizePayloadForStorage(
       "rr",
       "breathingRate",
       "breathing_rate",
+      "breathValue",
       "respiratoryRate",
       "respiratory_rate",
       "realtime_br",
