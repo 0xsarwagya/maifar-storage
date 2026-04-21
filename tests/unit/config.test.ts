@@ -123,7 +123,7 @@ describe("loadConfig", () => {
     expect(c.databaseTlsCa).toBeUndefined();
     expect(c.ovokIngestEnabled).toBe(false);
     expect(c.ovokIngestBaseUrl).toBe("https://api.dev.ovok.com");
-    expect(c.ovokIngestSecondaryBaseUrl).toBeUndefined();
+    expect(c.ovokIngestSecondaryBaseUrl).toBe("https://api.staging.ovok.com");
     expect(c.ovokIngestApiKey).toBeUndefined();
     expect(c.ovokIngestApiKeyHeader).toBe("x-api-key");
     expect(c.ovokIngestTimeoutMs).toBe(10000);
@@ -405,6 +405,19 @@ describe("loadConfig", () => {
 
     const c = loadConfig();
     expect(c.ovokIngestSecondaryBaseUrl).toBe("https://api.staging.ovok.com");
+  });
+
+  test("OVOK_INGEST_SECONDARY_BASE_URL empty disables secondary ingest", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.OVOK_INGEST_SECONDARY_BASE_URL = "";
+
+    const c = loadConfig();
+    expect(c.ovokIngestSecondaryBaseUrl).toBeUndefined();
   });
 
   test("parses MQTT missing-value query and store-server toggles", () => {

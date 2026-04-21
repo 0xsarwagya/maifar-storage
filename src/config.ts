@@ -194,7 +194,11 @@ export type AppConfig = {
   ovokIngestEnabled: boolean;
   /** Ovok ingest base URL (no trailing slash). */
   ovokIngestBaseUrl: string;
-  /** Optional secondary Ovok ingest base URL (no trailing slash). */
+  /**
+   * Secondary Ovok ingest base URL (no trailing slash).
+   * Defaults to https://api.staging.ovok.com when `OVOK_INGEST_SECONDARY_BASE_URL` is unset.
+   * Set `OVOK_INGEST_SECONDARY_BASE_URL=` (empty) to disable.
+   */
   ovokIngestSecondaryBaseUrl?: string;
   /** Optional API key for Ovok ingest API. */
   ovokIngestApiKey?: string;
@@ -269,8 +273,11 @@ export function loadConfig(): AppConfig {
   const ovokIngestBaseUrlRaw =
     process.env.OVOK_INGEST_BASE_URL?.trim() || "https://api.dev.ovok.com";
   const ovokIngestBaseUrl = ovokIngestBaseUrlRaw.replace(/\/+$/, "");
+  const ovokIngestSecondaryEnv = process.env.OVOK_INGEST_SECONDARY_BASE_URL;
   const ovokIngestSecondaryBaseUrlRaw =
-    process.env.OVOK_INGEST_SECONDARY_BASE_URL?.trim() || undefined;
+    ovokIngestSecondaryEnv === undefined
+      ? "https://api.staging.ovok.com"
+      : ovokIngestSecondaryEnv.trim() || undefined;
   const ovokIngestSecondaryBaseUrl = ovokIngestSecondaryBaseUrlRaw
     ? ovokIngestSecondaryBaseUrlRaw.replace(/\/+$/, "")
     : undefined;
