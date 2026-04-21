@@ -3,7 +3,6 @@ import { loadConfig, type AppConfig } from "./config";
 import { createDb, type Sql } from "./db";
 import { createFlushWorker } from "./flush-worker";
 import { forwardNormalizedPayloadToOvok, startMqttIngest } from "./mqtt-ingest";
-import { startMqttMissingValueQueryCron } from "./mqtt-query-cron";
 import { startOvokScheduledForwarding } from "./ovok-scheduler";
 import * as queue from "./queue";
 import type { FlushWorkerDeps } from "./flush-worker";
@@ -47,7 +46,6 @@ export function createApp(options: CreateAppOptions = {}): AppInstance {
   const mqttClient = startMqttIngest(config, () => {
     void flush();
   });
-  const mqttQueryCron = startMqttMissingValueQueryCron(sql, mqttClient, config);
   const ovokScheduler = startOvokScheduledForwarding(sql, config);
 
   const flushTimer = setInterval(() => {
@@ -66,7 +64,6 @@ export function createApp(options: CreateAppOptions = {}): AppInstance {
 
   async function stop(): Promise<void> {
     clearInterval(flushTimer);
-    mqttQueryCron.stop();
     ovokScheduler.stop();
     mqttClient.end(true);
     await flush();

@@ -194,6 +194,8 @@ export type AppConfig = {
   ovokIngestEnabled: boolean;
   /** Ovok ingest base URL (no trailing slash). */
   ovokIngestBaseUrl: string;
+  /** Optional secondary Ovok ingest base URL (no trailing slash). */
+  ovokIngestSecondaryBaseUrl?: string;
   /** Optional API key for Ovok ingest API. */
   ovokIngestApiKey?: string;
   /** Header name for API key when `ovokIngestApiKey` is set. */
@@ -267,6 +269,11 @@ export function loadConfig(): AppConfig {
   const ovokIngestBaseUrlRaw =
     process.env.OVOK_INGEST_BASE_URL?.trim() || "https://api.dev.ovok.com";
   const ovokIngestBaseUrl = ovokIngestBaseUrlRaw.replace(/\/+$/, "");
+  const ovokIngestSecondaryBaseUrlRaw =
+    process.env.OVOK_INGEST_SECONDARY_BASE_URL?.trim() || undefined;
+  const ovokIngestSecondaryBaseUrl = ovokIngestSecondaryBaseUrlRaw
+    ? ovokIngestSecondaryBaseUrlRaw.replace(/\/+$/, "")
+    : undefined;
   const ovokIngestApiKey = process.env.OVOK_INGEST_API_KEY?.trim() || undefined;
   const ovokIngestApiKeyHeader =
     process.env.OVOK_INGEST_API_KEY_HEADER?.trim() || "x-api-key";
@@ -314,6 +321,7 @@ export function loadConfig(): AppConfig {
     skipDeviceIdPrefixes,
     ovokIngestEnabled,
     ovokIngestBaseUrl,
+    ovokIngestSecondaryBaseUrl,
     ovokIngestApiKey,
     ovokIngestApiKeyHeader,
     ovokIngestTimeoutMs,

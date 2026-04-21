@@ -641,4 +641,39 @@ describe("mqtt ingest ovok forwarding", () => {
     expect(sentBody.entry[1]?.resource.device.reference).toBe("Device/MC01-200d3d2c011f");
     expect(sentBody.entry[2]?.resource.device.reference).toBe("Device/MC01-200d3d2c011a");
   });
+
+  test("forwards to secondary Ovok ingest base URL when configured", async () => {
+    resetOvokForwardMetricsForTests();
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response("", { status: 202 });
+    }) as typeof fetch;
+
+    try {
+      await forwardNormalizedPayloadToOvok(
+        "devices/acme-1/presence",
+        { resourceType: "Observation", id: "obs-1" },
+        {
+          ovokIngestEnabled: true,
+          ovokIngestBaseUrl: "https://api.dev.ovok.com",
+          ovokIngestSecondaryBaseUrl: "https://api.staging.ovok.com",
+          ovokIngestApiKey: undefined,
+          ovokIngestApiKeyHeader: "x-api-key",
+          ovokIngestTimeoutMs: 10000,
+        },
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://api.dev.ovok.com/v1/ingest/fhir",
+      "https://api.staging.ovok.com/v1/ingest/fhir",
+    ]);
+    const metrics = getOvokForwardMetricsSnapshot();
+    expect(metrics.requests_sent_total).toBe(2);
+    expect(metrics.requests_failed_total).toBe(0);
+  });
 });

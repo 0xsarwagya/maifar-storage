@@ -29,6 +29,7 @@ const keys = [
   "SKIP_DEVICE_ID_PREFIXES",
   "OVOK_INGEST_ENABLED",
   "OVOK_INGEST_BASE_URL",
+  "OVOK_INGEST_SECONDARY_BASE_URL",
   "OVOK_INGEST_API_KEY",
   "OVOK_INGEST_API_KEY_HEADER",
   "OVOK_INGEST_TIMEOUT_MS",
@@ -74,6 +75,7 @@ describe("loadConfig", () => {
     delete process.env.MQTT_TLS_CA_FILE;
     delete process.env.OVOK_INGEST_ENABLED;
     delete process.env.OVOK_INGEST_BASE_URL;
+    delete process.env.OVOK_INGEST_SECONDARY_BASE_URL;
     delete process.env.OVOK_INGEST_API_KEY;
     delete process.env.OVOK_INGEST_API_KEY_HEADER;
     delete process.env.OVOK_INGEST_TIMEOUT_MS;
@@ -121,6 +123,7 @@ describe("loadConfig", () => {
     expect(c.databaseTlsCa).toBeUndefined();
     expect(c.ovokIngestEnabled).toBe(false);
     expect(c.ovokIngestBaseUrl).toBe("https://api.dev.ovok.com");
+    expect(c.ovokIngestSecondaryBaseUrl).toBeUndefined();
     expect(c.ovokIngestApiKey).toBeUndefined();
     expect(c.ovokIngestApiKeyHeader).toBe("x-api-key");
     expect(c.ovokIngestTimeoutMs).toBe(10000);
@@ -389,6 +392,19 @@ describe("loadConfig", () => {
 
     const c = loadConfig();
     expect(c.ovokScheduledEnabled).toBe(true);
+  });
+
+  test("parses optional OVOK_INGEST_SECONDARY_BASE_URL", () => {
+    baseEnv();
+    process.env.DATABASE_URL = "postgres://x";
+    process.env.MQTT_URL = "mqtt://h";
+    delete process.env.MQTT_HOST;
+    delete process.env.MQTT_SERVERS;
+    process.env.MQTT_TOPICS = "#";
+    process.env.OVOK_INGEST_SECONDARY_BASE_URL = "https://api.staging.ovok.com/";
+
+    const c = loadConfig();
+    expect(c.ovokIngestSecondaryBaseUrl).toBe("https://api.staging.ovok.com");
   });
 
   test("parses MQTT missing-value query and store-server toggles", () => {

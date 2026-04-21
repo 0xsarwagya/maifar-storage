@@ -17,6 +17,7 @@ const VITALS_REALTIME_DEFAULT_PERIOD_MS = 600_000;
 const VITALS_BATCH_DEFAULT_PERIOD_MS = 5_000;
 const PRESENCE_BATCH_DEFAULT_PERIOD_MS = 3_600_000;
 const SLEEP_BATCH_DEFAULT_PERIOD_MS = 3_600_000;
+const MC01_TOPIC_PREFIX = "MC01/";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -24,6 +25,7 @@ type OvokIngestForwardConfig = Pick<
   AppConfig,
   | "ovokIngestEnabled"
   | "ovokIngestBaseUrl"
+  | "ovokIngestSecondaryBaseUrl"
   | "ovokIngestApiKey"
   | "ovokIngestApiKeyHeader"
   | "ovokIngestTimeoutMs"
@@ -84,8 +86,14 @@ export async function forwardNormalizedPayloadToOvok(
   config: OvokIngestForwardConfig,
 ): Promise<void> {
   if (!config.ovokIngestEnabled) return;
-  const url = resolveOvokIngestUrl(config.ovokIngestBaseUrl, payload);
-  if (!url) return;
+  const baseUrls = [
+    config.ovokIngestBaseUrl,
+    ...(config.ovokIngestSecondaryBaseUrl ? [config.ovokIngestSecondaryBaseUrl] : []),
+  ].filter((value, index, all) => all.indexOf(value) === index);
+  const urls = baseUrls
+    .map((baseUrl) => resolveOvokIngestUrl(baseUrl, payload))
+    .filter((url): url is string => url !== null);
+  if (urls.length === 0) return;
 
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -97,32 +105,34 @@ export async function forwardNormalizedPayloadToOvok(
   const body = JSON.stringify(ovokPayload);
   const bodyBytes = Buffer.byteLength(body, "utf8");
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
-      headers,
-      body,
-      signal: AbortSignal.timeout(config.ovokIngestTimeoutMs),
-    });
-  } catch (error) {
-    recordOvokForwardFailure(bodyBytes);
-    console.error(
-      `[ovok] ingest forward failed topic=${JSON.stringify(topic)} url=${url}:`,
-      error,
-    );
-    return;
-  }
+  for (const url of urls) {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body,
+        signal: AbortSignal.timeout(config.ovokIngestTimeoutMs),
+      });
+    } catch (error) {
+      recordOvokForwardFailure(bodyBytes);
+      console.error(
+        `[ovok] ingest forward failed topic=${JSON.stringify(topic)} url=${url}:`,
+        error,
+      );
+      continue;
+    }
 
-  if (!response.ok) {
-    recordOvokForwardFailure(bodyBytes);
-    const body = await response.text().catch(() => "");
-    console.error(
-      `[ovok] ingest rejected topic=${JSON.stringify(topic)} url=${url} status=${response.status} body=${truncateForLog(body, 2048)}`,
-    );
-    return;
+    if (!response.ok) {
+      recordOvokForwardFailure(bodyBytes);
+      const body = await response.text().catch(() => "");
+      console.error(
+        `[ovok] ingest rejected topic=${JSON.stringify(topic)} url=${url} status=${response.status} body=${truncateForLog(body, 2048)}`,
+      );
+      continue;
+    }
+    recordOvokForwardSuccess(bodyBytes);
   }
-  recordOvokForwardSuccess(bodyBytes);
 }
 
 function stripNullChars(value: string): string {
@@ -1553,7 +1563,13 @@ export function startMqttIngest(
 
   client.on("connect", () => {
     console.log(`[mqtt] connected (subscribe_qos=${config.mqttSubscribeQos})`);
-    for (const t of config.mqttTopics) {
+    const topicsToSubscribe = config.mqttTopics.filter(
+      (topic) => !topic.startsWith(MC01_TOPIC_PREFIX),
+    );
+    if (topicsToSubscribe.length !== config.mqttTopics.length) {
+      console.log("[mqtt] skipping MC01 topics for this project");
+    }
+    for (const t of topicsToSubscribe) {
       client.subscribe(t, { qos: config.mqttSubscribeQos }, (err) => {
         if (err) console.error(`[mqtt] subscribe failed for ${t}:`, err);
         else console.log(`[mqtt] subscribed: ${t}`);
@@ -1570,6 +1586,9 @@ export function startMqttIngest(
   });
 
   client.on("message", (topic, buf) => {
+    if (topic.startsWith(MC01_TOPIC_PREFIX)) {
+      return;
+    }
     if (!config.storeServerTopics && /^MC01\/Server\//i.test(topic)) {
       return;
     }
