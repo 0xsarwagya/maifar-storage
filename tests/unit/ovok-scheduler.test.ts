@@ -3,6 +3,7 @@ import {
   buildRealtimeObservationForKind,
   buildInvalidObservationForKind,
   classifyScheduledPayloadKind,
+  enrichStatsPayloadWithEnvironmentAverages,
   hasPresenceSignal,
   OVOK_FORWARD_CRON,
 } from "../../src/ovok-scheduler";
@@ -368,5 +369,83 @@ describe("buildRealtimeObservationForKind", () => {
     );
 
     expect(payload).toBeNull();
+  });
+});
+
+describe("enrichStatsPayloadWithEnvironmentAverages", () => {
+  test("adds room temperature and ambient light averages to sleep stats", () => {
+    const payload = enrichStatsPayloadWithEnvironmentAverages(
+      {
+        resourceType: "Bundle",
+        type: "collection",
+        entry: [
+          {
+            resource: {
+              resourceType: "Observation",
+              code: { coding: [{ code: "sleep-stats" }] },
+              component: [
+                {
+                  code: { coding: [{ code: "TST" }] },
+                  valueQuantity: { value: 7.5, unit: "h" },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      "dev-1",
+      [
+        {
+          topic: "devices/dev-1/temperature",
+          receivedAt: new Date("2026-01-01T00:05:00.000Z"),
+          payload: { temperature: 22 },
+        },
+        {
+          topic: "devices/dev-1/temperature",
+          receivedAt: new Date("2026-01-01T00:15:00.000Z"),
+          payload: { temperature: 24 },
+        },
+        {
+          topic: "devices/dev-1/ambient-light",
+          receivedAt: new Date("2026-01-01T00:20:00.000Z"),
+          payload: { illuminance: 300 },
+        },
+        {
+          topic: "devices/dev-1/ambient-light",
+          receivedAt: new Date("2026-01-01T00:30:00.000Z"),
+          payload: { illuminance: 500 },
+        },
+      ],
+    ) as {
+      entry: Array<{
+        resource: {
+          component: Array<{
+            code: { coding: Array<{ code: string }> };
+            valueQuantity?: { value: number; unit: string };
+          }>;
+        };
+      }>;
+    };
+
+    expect(payload.entry).toHaveLength(1);
+
+    const components = payload.entry[0]?.resource.component ?? [];
+    const roomTemperature = components.find((component) =>
+      component.code.coding.some((coding) => coding.code === "room_temperature"),
+    );
+    const illuminance = components.find((component) =>
+      component.code.coding.some((coding) => coding.code === "illuminance"),
+    );
+
+    expect(roomTemperature?.valueQuantity).toEqual({
+      value: 23,
+      unit: "°C",
+      system: "http://unitsofmeasure.org",
+      code: "Cel",
+    });
+    expect(illuminance?.valueQuantity).toEqual({
+      value: 400,
+      unit: "lux",
+    });
   });
 });

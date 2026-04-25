@@ -31,6 +31,25 @@ export const OVOK_FORWARD_CRON = {
   dailyBatch: "0 9 * * *",
 } as const;
 
+export const OVOK_FORWARD_JOB_NAMES = [
+  "presenceRealtime",
+  "sleepRealtime",
+  "vitalsRealtime",
+  "sleepBatch",
+  "presenceBatch",
+  "vitalsBatch",
+  "statsBatch",
+] as const;
+
+export type OvokForwardJobName = (typeof OVOK_FORWARD_JOB_NAMES)[number];
+
+export const DEFAULT_OVOK_DAILY_BATCH_JOBS: readonly OvokForwardJobName[] = [
+  "sleepBatch",
+  "presenceBatch",
+  "vitalsBatch",
+  "statsBatch",
+];
+
 type JsonRecord = Record<string, unknown>;
 
 type ObservationKind =
@@ -56,6 +75,7 @@ type SchedulerOptions = Pick<
   AppConfig,
   | "ovokIngestEnabled"
   | "ovokIngestBaseUrl"
+  | "ovokIngestSecondaryBaseUrl"
   | "ovokIngestApiKey"
   | "ovokIngestApiKeyHeader"
   | "ovokIngestTimeoutMs"
@@ -88,13 +108,20 @@ function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function nowWindow(periodMs: number): TimeWindow {
-  const end = new Date();
+function windowEndingAt(end: Date, periodMs: number): TimeWindow {
   return { start: new Date(end.getTime() - periodMs), end };
 }
 
+function nowWindow(periodMs: number): TimeWindow {
+  return windowEndingAt(new Date(), periodMs);
+}
+
+function dailyWindowEndingAt(end: Date): TimeWindow {
+  return windowEndingAt(end, DAILY_BATCH_WINDOW_MS);
+}
+
 function dailyWindowEndingAtNow(): TimeWindow {
-  return nowWindow(DAILY_BATCH_WINDOW_MS);
+  return dailyWindowEndingAt(new Date());
 }
 
 function sampledPeriodMsForKind(kind: ObservationKind): number {
@@ -784,6 +811,178 @@ function buildLatestRealtimeObservation(
   return deepClone(latestRow.normalizedPayload);
 }
 
+function hasCodingCode(value: unknown, code: string): boolean {
+  if (!isObjectRecord(value) || !Array.isArray(value.coding)) return false;
+  return value.coding.some(
+    (coding) => isObjectRecord(coding) && coding.code === code,
+  );
+}
+
+function computeAverageFromValues(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  const sum = values.reduce((acc, value) => acc + value, 0);
+  return sum / values.length;
+}
+
+function extractRoomTemperatureAverage(
+  rows: readonly NormalizedMessageRow[],
+): number | null {
+  return computeAverageFromValues(
+    rowsForKind(rows, "roomTemperatureRealtime")
+      .map((row) => {
+        if (!isObservation(row.normalizedPayload)) return null;
+        const valueQuantity = row.normalizedPayload.valueQuantity;
+        if (!isObjectRecord(valueQuantity) || typeof valueQuantity.value !== "number") {
+          return null;
+        }
+        return valueQuantity.value;
+      })
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value)),
+  );
+}
+
+function extractAmbientLightAverage(
+  rows: readonly NormalizedMessageRow[],
+): number | null {
+  return computeAverageFromValues(
+    rowsForKind(rows, "ambientLightRealtime")
+      .map((row) => {
+        if (!isObservation(row.normalizedPayload) || !Array.isArray(row.normalizedPayload.component)) {
+          return null;
+        }
+        const illuminanceComponent = row.normalizedPayload.component.find(
+          (component) =>
+            isObjectRecord(component) &&
+            hasCodingCode(component.code, "illuminance") &&
+            isObjectRecord(component.valueQuantity) &&
+            typeof component.valueQuantity.value === "number",
+        );
+        if (!isObjectRecord(illuminanceComponent) || !isObjectRecord(illuminanceComponent.valueQuantity)) {
+          return null;
+        }
+        return illuminanceComponent.valueQuantity.value as number;
+      })
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value)),
+  );
+}
+
+function upsertStatsComponent(
+  components: unknown,
+  component: JsonRecord,
+  matchCodes: readonly string[],
+): JsonRecord[] {
+  const existing = Array.isArray(components)
+    ? components.filter(
+        (entry) =>
+          !(
+            isObjectRecord(entry) &&
+            matchCodes.some((code) => hasCodingCode(entry.code, code))
+          ),
+      )
+    : [];
+  return [...existing, component];
+}
+
+export function enrichStatsPayloadWithEnvironmentAverages(
+  payload: unknown,
+  deviceId: string,
+  rows: readonly SchedulerMessageRow[],
+): unknown {
+  if (!isObjectRecord(payload) || payload.resourceType !== "Bundle" || !Array.isArray(payload.entry)) {
+    return payload;
+  }
+
+  const normalizedRows = normalizeRows(deviceId, rows);
+  const roomTemperatureAverage = extractRoomTemperatureAverage(normalizedRows);
+  const ambientLightAverage = extractAmbientLightAverage(normalizedRows);
+  if (roomTemperatureAverage === null && ambientLightAverage === null) {
+    return payload;
+  }
+
+  let didUpdate = false;
+  const nextEntry = payload.entry.map((entry) => {
+    if (!isObjectRecord(entry) || !isObservation(entry.resource) || !hasCodingCode(entry.resource.code, "sleep-stats")) {
+      return entry;
+    }
+
+    let nextComponents = Array.isArray(entry.resource.component) ? [...entry.resource.component] : [];
+
+    if (roomTemperatureAverage !== null) {
+      nextComponents = upsertStatsComponent(
+        nextComponents,
+        {
+          code: {
+            coding: [
+              {
+                system: "https://api.ovok.com/StructuredDefinition",
+                code: "room_temperature",
+                display: "Average Room Temperature",
+              },
+              {
+                system: "http://loinc.org",
+                code: "8310-5",
+                display: "Room temperature",
+              },
+            ],
+          },
+          valueQuantity: {
+            value: roomTemperatureAverage,
+            unit: "°C",
+            system: "http://unitsofmeasure.org",
+            code: "Cel",
+          },
+        },
+        ["room_temperature"],
+      );
+    }
+
+    if (ambientLightAverage !== null) {
+      nextComponents = upsertStatsComponent(
+        nextComponents,
+        {
+          code: {
+            coding: [
+              {
+                system: "https://api.ovok.com/StructuredDefinition",
+                code: "illuminance",
+                display: "Average Ambient Light",
+              },
+              {
+                system: "http://loinc.org",
+                code: "39125-0",
+                display: "Light intensity",
+              },
+            ],
+          },
+          valueQuantity: {
+            value: ambientLightAverage,
+            unit: "lux",
+          },
+        },
+        ["illuminance"],
+      );
+    }
+
+    didUpdate = true;
+    return {
+      ...entry,
+      resource: {
+        ...entry.resource,
+        component: nextComponents,
+      },
+    };
+  });
+
+  if (!didUpdate) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    entry: nextEntry,
+  };
+}
+
 export function buildRealtimeObservationForKind(
   kind: "presenceRealtime" | "sleepRealtime" | "heartRateRealtime" | "breathingRateRealtime" | "roomTemperatureRealtime" | "ambientLightRealtime",
   deviceId: string,
@@ -914,18 +1113,176 @@ async function sendStatsIfPresent(params: {
 }): Promise<void> {
   const { sql, config, deviceIds, window } = params;
   for (const deviceId of deviceIds) {
-    const payload = await selectLatestPayloadForKind(
-      sql,
-      deviceId,
-      "statsBatch",
-      window,
+    const rows = await listRecentDeviceMessages(sql, deviceId, window, 5_000);
+    const normalizedRows = filterRowsForCurrentOnlineSession(
+      normalizeRows(deviceId, rows),
     );
+    if (normalizedRows.length === 0) continue;
+
+    let payload: unknown | null = null;
+    for (const row of normalizedRows) {
+      if (classifyScheduledPayloadKind(row.normalizedPayload) === "statsBatch") {
+        payload = row.normalizedPayload;
+        break;
+      }
+    }
     if (!payload) continue;
+
+    payload = enrichStatsPayloadWithEnvironmentAverages(payload, deviceId, rows);
     await forwardNormalizedPayloadToOvok(
       `scheduler/statsBatch/${deviceId}`,
       payload,
       config,
     );
+  }
+}
+
+async function resolveDeviceIds(
+  sql: Sql,
+  requestedDeviceIds?: readonly string[],
+): Promise<string[]> {
+  if (!requestedDeviceIds || requestedDeviceIds.length === 0) {
+    return listKnownDeviceIds(sql);
+  }
+
+  return Array.from(
+    new Set(
+      requestedDeviceIds
+        .map((deviceId) => deviceId.trim())
+        .filter((deviceId) => deviceId.length > 0),
+    ),
+  );
+}
+
+async function runOvokForwardJob(params: {
+  sql: Sql;
+  config: SchedulerOptions;
+  deviceIds: string[];
+  job: OvokForwardJobName;
+  now: Date;
+}): Promise<void> {
+  const { sql, config, deviceIds, job, now } = params;
+
+  switch (job) {
+    case "presenceRealtime":
+      await sendRealtimeKind({
+        sql,
+        config,
+        deviceIds,
+        kind: "presenceRealtime",
+        window: windowEndingAt(now, DEVICE_ACTIVITY_WINDOW_MS),
+      });
+      return;
+    case "sleepRealtime":
+      await sendRealtimeKind({
+        sql,
+        config,
+        deviceIds,
+        kind: "sleepRealtime",
+        window: windowEndingAt(now, TEN_MINUTES_MS),
+      });
+      return;
+    case "vitalsRealtime": {
+      const window = windowEndingAt(now, TEN_MINUTES_MS);
+      await sendRealtimeKind({
+        sql,
+        config,
+        deviceIds,
+        kind: "heartRateRealtime",
+        window,
+      });
+      await sendRealtimeKind({
+        sql,
+        config,
+        deviceIds,
+        kind: "breathingRateRealtime",
+        window,
+      });
+      await sendRealtimeKind({
+        sql,
+        config,
+        deviceIds,
+        kind: "roomTemperatureRealtime",
+        window,
+      });
+      await sendRealtimeKind({
+        sql,
+        config,
+        deviceIds,
+        kind: "ambientLightRealtime",
+        window,
+      });
+      return;
+    }
+    case "sleepBatch":
+      await sendBatchKindIfPresent({
+        sql,
+        config,
+        deviceIds,
+        kind: "sleepBatch",
+        window: dailyWindowEndingAt(now),
+      });
+      return;
+    case "presenceBatch":
+      await sendBatchKindIfPresent({
+        sql,
+        config,
+        deviceIds,
+        kind: "presenceBatch",
+        window: dailyWindowEndingAt(now),
+      });
+      return;
+    case "vitalsBatch": {
+      const window = dailyWindowEndingAt(now);
+      await sendBatchKindIfPresent({
+        sql,
+        config,
+        deviceIds,
+        kind: "heartRateBatch",
+        window,
+      });
+      await sendBatchKindIfPresent({
+        sql,
+        config,
+        deviceIds,
+        kind: "breathingRateBatch",
+        window,
+      });
+      return;
+    }
+    case "statsBatch":
+      await sendStatsIfPresent({
+        sql,
+        config,
+        deviceIds,
+        window: dailyWindowEndingAt(now),
+      });
+      return;
+  }
+}
+
+export async function runOvokForwardJobs(params: {
+  sql: Sql;
+  config: SchedulerOptions;
+  jobs: readonly OvokForwardJobName[];
+  deviceIds?: readonly string[];
+  now?: Date;
+}): Promise<void> {
+  const { sql, config, jobs, deviceIds, now = new Date() } = params;
+  if (!config.ovokIngestEnabled) return;
+
+  const resolvedDeviceIds = await resolveDeviceIds(sql, deviceIds);
+  if (resolvedDeviceIds.length === 0) return;
+
+  const uniqueJobs = Array.from(new Set(jobs));
+  for (const job of uniqueJobs) {
+    await runOvokForwardJob({
+      sql,
+      config,
+      deviceIds: resolvedDeviceIds,
+      job,
+      now,
+    });
   }
 }
 
@@ -973,6 +1330,7 @@ export function startOvokScheduledForwarding(
   const sharedConfig: SchedulerOptions = {
     ovokIngestEnabled: config.ovokIngestEnabled,
     ovokIngestBaseUrl: config.ovokIngestBaseUrl,
+    ovokIngestSecondaryBaseUrl: config.ovokIngestSecondaryBaseUrl,
     ovokIngestApiKey: config.ovokIngestApiKey,
     ovokIngestApiKeyHeader: config.ovokIngestApiKeyHeader,
     ovokIngestTimeoutMs: config.ovokIngestTimeoutMs,
@@ -987,116 +1345,80 @@ export function startOvokScheduledForwarding(
   }
 
   scheduleJob(tasks, OVOK_FORWARD_CRON.presenceRealtime, "presenceRealtime", async () => {
-    await withDevices(async (deviceIds) => {
-      await sendRealtimeKind({
+    await withDevices(async (deviceIds) =>
+      runOvokForwardJobs({
         sql,
         config: sharedConfig,
         deviceIds,
-        kind: "presenceRealtime",
-        window: nowWindow(DEVICE_ACTIVITY_WINDOW_MS),
-      });
-    });
+        jobs: ["presenceRealtime"],
+      }),
+    );
   });
 
   scheduleJob(tasks, OVOK_FORWARD_CRON.sleepRealtime, "sleepRealtime", async () => {
-    await withDevices(async (deviceIds) => {
-      await sendRealtimeKind({
+    await withDevices(async (deviceIds) =>
+      runOvokForwardJobs({
         sql,
         config: sharedConfig,
         deviceIds,
-        kind: "sleepRealtime",
-        window: nowWindow(TEN_MINUTES_MS),
-      });
-    });
+        jobs: ["sleepRealtime"],
+      }),
+    );
   });
 
   scheduleJob(tasks, OVOK_FORWARD_CRON.vitalsRealtime, "vitalsRealtime", async () => {
-    await withDevices(async (deviceIds) => {
-      const window = nowWindow(TEN_MINUTES_MS);
-      await sendRealtimeKind({
+    await withDevices(async (deviceIds) =>
+      runOvokForwardJobs({
         sql,
         config: sharedConfig,
         deviceIds,
-        kind: "heartRateRealtime",
-        window,
-      });
-      await sendRealtimeKind({
-        sql,
-        config: sharedConfig,
-        deviceIds,
-        kind: "breathingRateRealtime",
-        window,
-      });
-      await sendRealtimeKind({
-        sql,
-        config: sharedConfig,
-        deviceIds,
-        kind: "roomTemperatureRealtime",
-        window,
-      });
-      await sendRealtimeKind({
-        sql,
-        config: sharedConfig,
-        deviceIds,
-        kind: "ambientLightRealtime",
-        window,
-      });
-    });
+        jobs: ["vitalsRealtime"],
+      }),
+    );
   });
 
   scheduleJob(tasks, OVOK_FORWARD_CRON.dailyBatch, "sleepBatch", async () => {
-    await withDevices(async (deviceIds) => {
-      await sendBatchKindIfPresent({
+    await withDevices(async (deviceIds) =>
+      runOvokForwardJobs({
         sql,
         config: sharedConfig,
         deviceIds,
-        kind: "sleepBatch",
-        window: dailyWindowEndingAtNow(),
-      });
-    });
+        jobs: ["sleepBatch"],
+      }),
+    );
   });
 
   scheduleJob(tasks, OVOK_FORWARD_CRON.dailyBatch, "presenceBatch", async () => {
-    await withDevices(async (deviceIds) => {
-      await sendBatchKindIfPresent({
+    await withDevices(async (deviceIds) =>
+      runOvokForwardJobs({
         sql,
         config: sharedConfig,
         deviceIds,
-        kind: "presenceBatch",
-        window: dailyWindowEndingAtNow(),
-      });
-    });
+        jobs: ["presenceBatch"],
+      }),
+    );
   });
 
   scheduleJob(tasks, OVOK_FORWARD_CRON.dailyBatch, "vitalsBatch", async () => {
-    await withDevices(async (deviceIds) => {
-      const window = dailyWindowEndingAtNow();
-      await sendBatchKindIfPresent({
+    await withDevices(async (deviceIds) =>
+      runOvokForwardJobs({
         sql,
         config: sharedConfig,
         deviceIds,
-        kind: "heartRateBatch",
-        window,
-      });
-      await sendBatchKindIfPresent({
-        sql,
-        config: sharedConfig,
-        deviceIds,
-        kind: "breathingRateBatch",
-        window,
-      });
-    });
+        jobs: ["vitalsBatch"],
+      }),
+    );
   });
 
   scheduleJob(tasks, OVOK_FORWARD_CRON.dailyBatch, "statsBatch", async () => {
-    await withDevices(async (deviceIds) => {
-      await sendStatsIfPresent({
+    await withDevices(async (deviceIds) =>
+      runOvokForwardJobs({
         sql,
         config: sharedConfig,
         deviceIds,
-        window: dailyWindowEndingAtNow(),
-      });
-    });
+        jobs: ["statsBatch"],
+      }),
+    );
   });
 
   log.info("[ovok-scheduler] enabled with UTC cron jobs");
