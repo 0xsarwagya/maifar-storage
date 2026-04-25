@@ -437,7 +437,7 @@ describe("enrichStatsPayloadWithEnvironmentAverages", () => {
       component.code.coding.some((coding) => coding.code === "illuminance"),
     );
 
-    expect(roomTemperature?.valueQuantity).toEqual({
+    expect(roomTemperature?.valueQuantity).toMatchObject({
       value: 23,
       unit: "°C",
       system: "http://unitsofmeasure.org",

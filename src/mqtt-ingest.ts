@@ -575,11 +575,13 @@ function extractRoomTemperatureValue(payload: JsonRecord): number | null {
 }
 
 function looksLikeAmbientLightPayload(topic: string, payload: JsonRecord): boolean {
-  if (/\b(ambient[_-]?light|illuminance|rgb|ir)\b/i.test(topic)) return true;
+  if (/\b(ambient[_-]?light|illuminance|rgb|ir|lux)\b/i.test(topic)) return true;
   return (
     "ambientLight" in payload ||
     "ambient_light" in payload ||
     "illuminance" in payload ||
+    "Lux" in payload ||
+    "lux" in payload ||
     "IR" in payload ||
     "RGB" in payload ||
     "lightColor" in payload ||
@@ -591,7 +593,7 @@ function extractAmbientLightValue(
   payload: JsonRecord,
 ): { illuminance: number | null; lightColor: string | null } | null {
   const illuminance = toFiniteNumber(
-    readUnknown(payload, ["illuminance", "ambientLight", "ambient_light", "IR", "value"]),
+    readUnknown(payload, ["illuminance", "ambientLight", "ambient_light", "Lux", "lux", "IR", "value"]),
   );
   const lightColor = rgbToHex(
     readUnknown(payload, ["lightColor", "light_color", "RGB"]),
@@ -1188,6 +1190,7 @@ function looksLikeHeartRatePayload(topic: string, payload: JsonRecord): boolean 
   if (/\b(hr|heart[_-]?rate|realtime[_-]?hr)\b/i.test(topic)) return true;
   return (
     "hr" in payload ||
+    "HeartRate" in payload ||
     "heartRate" in payload ||
     "heart_rate" in payload ||
     "heartRateValue" in payload ||
@@ -1202,6 +1205,7 @@ function looksLikeBreathingRatePayload(topic: string, payload: JsonRecord): bool
   return (
     "br" in payload ||
     "rr" in payload ||
+    "RR" in payload ||
     "breathingRate" in payload ||
     "breathing_rate" in payload ||
     "breathValue" in payload ||
@@ -1400,21 +1404,21 @@ function buildRealtimeVitalObservation(params: {
   return observation;
 }
 
-export function normalizePayloadForStorage(
+export function normalizePayloadsForStorage(
   topic: string,
   payload: unknown,
   deviceId: string | null,
   receivedAt: Date,
-): unknown {
-  if (!isObjectRecord(payload)) return payload;
+) : unknown[] {
+  if (!isObjectRecord(payload)) return [payload];
   const sourcePayload = expandAttributeValuePayload(payload);
   if (
     sourcePayload.resourceType === "Bundle" &&
     looksLikeBatchStatisticsPayload(topic, sourcePayload)
   ) {
-    return ensureLongestSleepDurationForBundle(sourcePayload);
+    return [ensureLongestSleepDurationForBundle(sourcePayload)];
   }
-  if (sourcePayload.resourceType === "Observation") return sourcePayload;
+  if (sourcePayload.resourceType === "Observation") return [sourcePayload];
 
   const payloadPeriod = readNumber(sourcePayload, ["period", "periodMs", "samplePeriodMs"]);
   const deviceReferenceId =
@@ -1423,15 +1427,17 @@ export function normalizePayloadForStorage(
     "not_implemented";
   const effectiveInstant = resolveEffectiveInstant(sourcePayload, receivedAt);
   const isBatch = looksLikeBatchPayload(topic, sourcePayload);
+  const normalizedPayloads: unknown[] = [];
 
   if (looksLikeBatchStatisticsPayload(topic, sourcePayload)) {
     const bundle = buildBatchStatisticsBundle(sourcePayload, deviceReferenceId, receivedAt);
-    if (bundle !== null) return bundle;
+    if (bundle !== null) return [bundle];
   }
 
   if (looksLikeHeartRatePayload(topic, sourcePayload)) {
     const raw = readUnknown(sourcePayload, [
       "hr",
+      "HeartRate",
       "heartRate",
       "heart_rate",
       "heartRateValue",
@@ -1450,7 +1456,7 @@ export function normalizePayloadForStorage(
         (isBatch
           ? VITALS_BATCH_DEFAULT_PERIOD_MS
           : VITALS_REALTIME_DEFAULT_PERIOD_MS);
-      return buildRealtimeVitalObservation({
+      normalizedPayloads.push(buildRealtimeVitalObservation({
         code: "8867-4",
         display: "Heart rate",
         unit: "beats/min",
@@ -1463,7 +1469,7 @@ export function normalizePayloadForStorage(
         period: vitalPeriod,
         deviceReferenceId,
         includeAverageComponent: !isBatch,
-      });
+      }));
     }
   }
 
@@ -1471,6 +1477,7 @@ export function normalizePayloadForStorage(
     const raw = readUnknown(sourcePayload, [
       "br",
       "rr",
+      "RR",
       "breathingRate",
       "breathing_rate",
       "breathValue",
@@ -1491,7 +1498,7 @@ export function normalizePayloadForStorage(
         (isBatch
           ? VITALS_BATCH_DEFAULT_PERIOD_MS
           : VITALS_REALTIME_DEFAULT_PERIOD_MS);
-      return buildRealtimeVitalObservation({
+      normalizedPayloads.push(buildRealtimeVitalObservation({
         code: "9279-1",
         display: "Breathing rate",
         unit: "breaths/min",
@@ -1504,7 +1511,7 @@ export function normalizePayloadForStorage(
         period: vitalPeriod,
         deviceReferenceId,
         includeAverageComponent: !isBatch,
-      });
+      }));
     }
   }
 
@@ -1532,7 +1539,7 @@ export function normalizePayloadForStorage(
           sampledCount > 1 ? 2 : 1,
           sleepBatchPeriod,
         );
-        return {
+        normalizedPayloads.push({
           resourceType: "Observation",
           status: "final",
           category: [
@@ -1572,14 +1579,14 @@ export function normalizePayloadForStorage(
           device: {
             reference: `Device/${deviceReferenceId}`,
           },
-        };
+        });
       }
     }
 
     const sleepStatus = extractSleepStatusValue(topic, sourcePayload);
     if (sleepStatus !== null) {
       const sleepRealtimePeriod = payloadPeriod ?? SLEEP_REALTIME_DEFAULT_PERIOD_MS;
-      return {
+      normalizedPayloads.push({
         resourceType: "Observation",
         status: "final",
         category: [
@@ -1620,34 +1627,36 @@ export function normalizePayloadForStorage(
         device: {
           reference: `Device/${deviceReferenceId}`,
         },
-      };
-	  }
-	}
+      });
+    }
+  }
 
   if (looksLikeRoomTemperaturePayload(topic, sourcePayload)) {
     const roomTemperature = extractRoomTemperatureValue(sourcePayload);
     if (roomTemperature !== null) {
-      return buildRoomTemperatureObservation({
+      normalizedPayloads.push(buildRoomTemperatureObservation({
         deviceReferenceId,
         effectiveInstant,
         value: roomTemperature,
-      });
+      }));
     }
   }
 
   if (looksLikeAmbientLightPayload(topic, sourcePayload)) {
     const ambientLight = extractAmbientLightValue(sourcePayload);
     if (ambientLight !== null) {
-      return buildAmbientLightObservation({
+      normalizedPayloads.push(buildAmbientLightObservation({
         deviceReferenceId,
         effectiveInstant,
         illuminance: ambientLight.illuminance,
         lightColor: ambientLight.lightColor,
-      });
+      }));
     }
   }
 
-  if (!looksLikePresencePayload(topic, sourcePayload)) return sourcePayload;
+  if (!looksLikePresencePayload(topic, sourcePayload)) {
+    return normalizedPayloads.length > 0 ? normalizedPayloads : [sourcePayload];
+  }
 
   if (isBatch) {
     const presenceBatchPeriod = payloadPeriod ?? PRESENCE_BATCH_DEFAULT_PERIOD_MS;
@@ -1672,7 +1681,7 @@ export function normalizePayloadForStorage(
         sampledCount > 1 ? 2 : 1,
         presenceBatchPeriod,
       );
-      return {
+      normalizedPayloads.push({
         resourceType: "Observation",
         status: "final",
         category: [
@@ -1712,56 +1721,67 @@ export function normalizePayloadForStorage(
         device: {
           reference: `Device/${deviceReferenceId}`,
         },
-      };
+      });
     }
-    return sourcePayload;
+    return normalizedPayloads.length > 0 ? normalizedPayloads : [sourcePayload];
   }
 
   const value = extractPresenceValue(sourcePayload);
-  if (value === null) return sourcePayload;
-  const presenceRealtimePeriod = payloadPeriod ?? PRESENCE_REALTIME_DEFAULT_PERIOD_MS;
-
-  return {
-    resourceType: "Observation",
-    status: "final",
-    category: [
-      {
+  if (value !== null) {
+    const presenceRealtimePeriod = payloadPeriod ?? PRESENCE_REALTIME_DEFAULT_PERIOD_MS;
+    normalizedPayloads.push({
+      resourceType: "Observation",
+      status: "final",
+      category: [
+        {
+          coding: [
+            {
+              system: "http://terminology.hl7.org/CodeSystem/observation-category",
+              code: "activity",
+              display: "Activity",
+            },
+          ],
+        },
+      ],
+      code: {
         coding: [
           {
-            system: "http://terminology.hl7.org/CodeSystem/observation-category",
-            code: "activity",
-            display: "Activity",
+            system: "https://sleepiz.com/fhir/CodeSystem/observation-codes",
+            code: "presence-detection",
+            display: "Presence",
           },
         ],
       },
-    ],
-    code: {
-      coding: [
-        {
-          system: "https://sleepiz.com/fhir/CodeSystem/observation-codes",
-          code: "presence-detection",
-          display: "Presence",
+      subject: { reference: "Patient/not_implemented" },
+      effectiveInstant,
+      valueSampledData: {
+        origin: {
+          value: 0,
+          unit: "1",
+          system: "http://unitsofmeasure.org",
+          code: "1",
         },
-      ],
-    },
-    subject: { reference: "Patient/not_implemented" },
-    effectiveInstant,
-    valueSampledData: {
-      origin: {
-        value: 0,
-        unit: "1",
-        system: "http://unitsofmeasure.org",
-        code: "1",
+        period: presenceRealtimePeriod,
+        factor: 1,
+        dimensions: 1,
+        data: value,
       },
-      period: presenceRealtimePeriod,
-      factor: 1,
-      dimensions: 1,
-      data: value,
-    },
-    device: {
-      reference: `Device/${deviceReferenceId}`,
-    },
-  };
+      device: {
+        reference: `Device/${deviceReferenceId}`,
+      },
+    });
+  }
+
+  return normalizedPayloads.length > 0 ? normalizedPayloads : [sourcePayload];
+}
+
+export function normalizePayloadForStorage(
+  topic: string,
+  payload: unknown,
+  deviceId: string | null,
+  receivedAt: Date,
+): unknown {
+  return normalizePayloadsForStorage(topic, payload, deviceId, receivedAt)[0] ?? payload;
 }
 
 export function sanitizePayloadForStorage(value: unknown): unknown {
@@ -1904,21 +1924,14 @@ export function startMqttIngest(
     );
     const deviceId =
       rawDeviceId === null ? null : stripNullChars(rawDeviceId) || null;
-    const normalizedPayload = normalizePayloadForStorage(
+    const normalizedPayloads = normalizePayloadsForStorage(
       topic,
       parsed,
       deviceId,
       receivedAt,
     );
 
-    const row: QueuedRow = {
-      receivedAt,
-      topic,
-      deviceId,
-      payload: normalizedPayload,
-    };
-
-    const did = row.deviceId;
+    const did = deviceId;
     if (did && config.skipDeviceIdPrefixes.some((p) => did.startsWith(p))) {
       log.info(
         { topic, device_id: did, skip_prefixes: config.skipDeviceIdPrefixes },
@@ -1927,18 +1940,28 @@ export function startMqttIngest(
       return;
     }
 
-    const payloadJson = JSON.stringify(normalizedPayload);
-    log.info(
-      {
+    for (const normalizedPayload of normalizedPayloads) {
+      const row: QueuedRow = {
+        receivedAt,
         topic,
-        device_id: row.deviceId,
-        bytes: buf.length,
-        payload: truncateForLog(payloadJson, LOG_PAYLOAD_MAX_CHARS),
-      },
-      "[mqtt] message",
-    );
+        deviceId,
+        payload: normalizedPayload,
+      };
 
-    queue.enqueue(row);
+      const payloadJson = JSON.stringify(normalizedPayload);
+      log.info(
+        {
+          topic,
+          device_id: row.deviceId,
+          bytes: buf.length,
+          payload: truncateForLog(payloadJson, LOG_PAYLOAD_MAX_CHARS),
+        },
+        "[mqtt] message",
+      );
+
+      queue.enqueue(row);
+    }
+
     if (queue.depth() >= config.batchMax) {
       requestFlush();
     }

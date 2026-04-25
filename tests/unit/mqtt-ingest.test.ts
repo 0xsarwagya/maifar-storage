@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   extractDeviceOnlineState,
   forwardNormalizedPayloadToOvok,
+  normalizePayloadsForStorage,
   normalizePayloadForStorage,
   parsePayloadTextForStorage,
   resolveOvokIngestUrl,
@@ -357,6 +358,53 @@ describe("mqtt ingest environment normalization", () => {
         }>
       )[1]?.valueString,
     ).toBe("#123456");
+  });
+
+  test("splits combined MC01 environment payload into room temperature and ambient light observations", () => {
+    const out = normalizePayloadsForStorage(
+      "MC01/Client/200d3d2c0109",
+      {
+        method: "post",
+        temperature: 31.3,
+        IR: 463,
+        Lux: 485,
+        timestamp: "2026-04-25T15:39:27.969Z",
+      },
+      "200d3d2c0109",
+      new Date("2026-04-25T15:39:28.000Z"),
+    ) as Array<Record<string, unknown>>;
+
+    expect(out).toHaveLength(2);
+
+    const roomTemperature = out.find(
+      (entry) =>
+        ((entry.code as { coding?: Array<{ code?: string }> }).coding ?? []).some(
+          (coding) => coding.code === "room_temperature",
+        ),
+    );
+    const ambientLight = out.find(
+      (entry) =>
+        ((entry.code as { coding?: Array<{ code?: string }> }).coding ?? []).some(
+          (coding) => coding.code === "ambient_light",
+        ),
+    );
+
+    expect(roomTemperature?.valueQuantity).toEqual({
+      value: 31.3,
+      unit: "°C",
+      system: "http://unitsofmeasure.org",
+      code: "Cel",
+    });
+    expect(
+      (
+        ambientLight?.component as Array<{
+          valueQuantity?: { value: number; unit: string };
+        }>
+      )[0]?.valueQuantity,
+    ).toEqual({
+      value: 485,
+      unit: "lux",
+    });
   });
 });
 
