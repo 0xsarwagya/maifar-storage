@@ -1886,10 +1886,13 @@ export function startMqttIngest(
   });
 
   client.on("message", (topic, buf) => {
+    log.info({ topic, bytes: buf.length }, "[mqtt] inbound");
     if (topic.startsWith(MC01_TOPIC_PREFIX)) {
+      log.debug({ topic }, "[mqtt] skipped MC01 topic");
       return;
     }
     if (!config.storeServerTopics && /^MC01\/Server\//i.test(topic)) {
+      log.debug({ topic }, "[mqtt] skipped server topic");
       return;
     }
     const parsed = parsePayloadTextForStorage(buf.toString("utf8"));
@@ -1918,6 +1921,10 @@ export function startMqttIngest(
 
     const did = row.deviceId;
     if (did && config.skipDeviceIdPrefixes.some((p) => did.startsWith(p))) {
+      log.info(
+        { topic, device_id: did, skip_prefixes: config.skipDeviceIdPrefixes },
+        "[mqtt] skipped device by prefix",
+      );
       return;
     }
 
