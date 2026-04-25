@@ -1,6 +1,7 @@
 import cron, { type ScheduledTask } from "node-cron";
 import type { AppConfig } from "./config";
 import type { Sql } from "./db";
+import { logger } from "./logger";
 import {
   extractDeviceOnlineState,
   forwardNormalizedPayloadToOvok,
@@ -18,6 +19,7 @@ const PRESENCE_BATCH_SAMPLE_PERIOD_MS = 30_000;
 const SLEEP_BATCH_SAMPLE_PERIOD_MS = 30_000;
 const VITALS_BATCH_SAMPLE_PERIOD_MS = 5_000;
 const DAILY_BATCH_WINDOW_MS = DAY_MS;
+const log = logger.child({ module: "ovok-scheduler" });
 
 const VALID_PRESENCE_TOKENS = new Set(["0", "1"]);
 const VALID_SLEEP_TOKENS = new Set(["0", "1"]);
@@ -942,14 +944,14 @@ function scheduleJob(
     expr,
     async () => {
       if (inFlight) {
-        console.log(`[ovok-scheduler] skip ${jobName} in-flight`);
+        log.info({ job: jobName }, "[ovok-scheduler] skip in-flight");
         return;
       }
       inFlight = true;
       try {
         await run();
       } catch (error) {
-        console.error(`[ovok-scheduler] job failed ${jobName}`, error);
+        log.error({ err: error, job: jobName }, "[ovok-scheduler] job failed");
       } finally {
         inFlight = false;
       }
@@ -1097,7 +1099,7 @@ export function startOvokScheduledForwarding(
     });
   });
 
-  console.log("[ovok-scheduler] enabled with UTC cron jobs");
+  log.info("[ovok-scheduler] enabled with UTC cron jobs");
 
   return {
     stop: () => {

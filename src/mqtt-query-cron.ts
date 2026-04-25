@@ -2,6 +2,7 @@ import cron, { type ScheduledTask } from "node-cron";
 import type { MqttClient } from "mqtt";
 import type { AppConfig } from "./config";
 import type { Sql } from "./db";
+import { logger } from "./logger";
 
 type QueryTarget = {
   commandKey: string;
@@ -102,6 +103,7 @@ const QUERY_TARGETS: QueryTarget[] = [
     commandValue: "[60,60,60,60]",
   },
 ];
+const log = logger.child({ module: "mqtt-query-cron" });
 
 type MissingQueryConfig = Pick<
   AppConfig,
@@ -153,7 +155,7 @@ export function startMqttMissingValueQueryCron(
   let inFlight = false;
   async function run(): Promise<void> {
     if (!mqttClient.connected) {
-      console.log("[mqtt-query] skip broker disconnected");
+      log.info("[mqtt-query] skip broker disconnected");
       return;
     }
     const deviceIds = await fetchDeviceIds(sql);
@@ -167,13 +169,23 @@ export function startMqttMissingValueQueryCron(
         const payload = JSON.stringify(payloadBody);
         try {
           await publishCommand(mqttClient, topic, payload);
-          console.log(
-            `[mqtt-query] sent device_id=${deviceId} method=${target.method} command=${target.commandKey}`,
+          log.info(
+            {
+              device_id: deviceId,
+              method: target.method,
+              command: target.commandKey,
+            },
+            "[mqtt-query] sent",
           );
         } catch (error) {
-          console.error(
-            `[mqtt-query] publish failed device_id=${deviceId} method=${target.method} command=${target.commandKey}`,
-            error,
+          log.error(
+            {
+              err: error,
+              device_id: deviceId,
+              method: target.method,
+              command: target.commandKey,
+            },
+            "[mqtt-query] publish failed",
           );
         }
       }
@@ -184,14 +196,14 @@ export function startMqttMissingValueQueryCron(
     config.mqttMissingValueQueryCron,
     async () => {
       if (inFlight) {
-        console.log("[mqtt-query] skip in-flight");
+        log.info("[mqtt-query] skip in-flight");
         return;
       }
       inFlight = true;
       try {
         await run();
       } catch (error) {
-        console.error("[mqtt-query] job failed", error);
+        log.error({ err: error }, "[mqtt-query] job failed");
       } finally {
         inFlight = false;
       }
@@ -199,8 +211,13 @@ export function startMqttMissingValueQueryCron(
     { timezone: "UTC" },
   );
 
-  console.log(
-    `[mqtt-query] enabled cron="${config.mqttMissingValueQueryCron}" lookback_ms=${config.mqttMissingValueQueryLookbackMs} poll_mode=continuous`,
+  log.info(
+    {
+      cron: config.mqttMissingValueQueryCron,
+      lookback_ms: config.mqttMissingValueQueryLookbackMs,
+      poll_mode: "continuous",
+    },
+    "[mqtt-query] enabled",
   );
 
   return {

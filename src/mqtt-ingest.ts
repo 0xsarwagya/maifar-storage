@@ -1,6 +1,7 @@
 import mqtt, { type IClientOptions, type MqttClient } from "mqtt";
 import type { AppConfig } from "./config";
 import { extractDeviceId } from "./device-id";
+import { logger } from "./logger";
 import {
   recordOvokForwardFailure,
   recordOvokForwardSuccess,
@@ -18,6 +19,7 @@ const VITALS_BATCH_DEFAULT_PERIOD_MS = 5_000;
 const PRESENCE_BATCH_DEFAULT_PERIOD_MS = 30_000;
 const SLEEP_BATCH_DEFAULT_PERIOD_MS = 30_000;
 const MC01_TOPIC_PREFIX = "MC01/";
+const log = logger.child({ module: "mqtt-ingest" });
 const OVOK_STRUCTURED_DEFINITION_SYSTEM = "https://api.ovok.com/StructuredDefinition";
 const ENVIRONMENT_OBSERVATION_CODES = new Set(["room_temperature", "ambient_light"]);
 
@@ -135,9 +137,13 @@ export async function forwardNormalizedPayloadToOvok(
       });
     } catch (error) {
       recordOvokForwardFailure(bodyBytes);
-      console.error(
-        `[ovok] ingest forward failed topic=${JSON.stringify(topic)} url=${url}:`,
-        error,
+      log.error(
+        {
+          err: error,
+          topic,
+          url,
+        },
+        "[ovok] ingest forward failed",
       );
       continue;
     }
@@ -145,8 +151,14 @@ export async function forwardNormalizedPayloadToOvok(
     if (!response.ok) {
       recordOvokForwardFailure(bodyBytes);
       const body = await response.text().catch(() => "");
-      console.error(
-        `[ovok] ingest rejected topic=${JSON.stringify(topic)} url=${url} status=${response.status} body=${truncateForLog(body, 2048)}`,
+      log.error(
+        {
+          topic,
+          url,
+          status: response.status,
+          body: truncateForLog(body, 2048),
+        },
+        "[ovok] ingest rejected",
       );
       continue;
     }
@@ -1833,7 +1845,7 @@ export function startMqttIngest(
   requestFlush: () => void,
 ): MqttClient {
   if (!config.mqttTlsRejectUnauthorized) {
-    console.warn(
+    log.warn(
       "[mqtt] TLS certificate verification disabled (MQTT_TLS_INSECURE or MQTT_TLS_REJECT_UNAUTHORIZED=false)",
     );
   }
@@ -1850,27 +1862,27 @@ export function startMqttIngest(
         });
 
   client.on("connect", () => {
-    console.log(`[mqtt] connected (subscribe_qos=${config.mqttSubscribeQos})`);
+    log.info({ subscribe_qos: config.mqttSubscribeQos }, "[mqtt] connected");
     const topicsToSubscribe = config.mqttTopics.filter(
       (topic) => !topic.startsWith(MC01_TOPIC_PREFIX),
     );
     if (topicsToSubscribe.length !== config.mqttTopics.length) {
-      console.log("[mqtt] skipping MC01 topics for this project");
+      log.info("[mqtt] skipping MC01 topics for this project");
     }
     for (const t of topicsToSubscribe) {
       client.subscribe(t, { qos: config.mqttSubscribeQos }, (err) => {
-        if (err) console.error(`[mqtt] subscribe failed for ${t}:`, err);
-        else console.log(`[mqtt] subscribed: ${t}`);
+        if (err) log.error({ err, topic: t }, "[mqtt] subscribe failed");
+        else log.info({ topic: t }, "[mqtt] subscribed");
       });
     }
   });
 
   client.on("reconnect", () => {
-    console.log("[mqtt] reconnecting...");
+    log.info("[mqtt] reconnecting");
   });
 
   client.on("error", (err) => {
-    console.error("[mqtt] error:", err);
+    log.error({ err }, "[mqtt] error");
   });
 
   client.on("message", (topic, buf) => {
@@ -1910,8 +1922,14 @@ export function startMqttIngest(
     }
 
     const payloadJson = JSON.stringify(normalizedPayload);
-    console.log(
-      `[mqtt] message topic=${JSON.stringify(topic)} device_id=${JSON.stringify(row.deviceId)} bytes=${buf.length} payload=${truncateForLog(payloadJson, LOG_PAYLOAD_MAX_CHARS)}`,
+    log.info(
+      {
+        topic,
+        device_id: row.deviceId,
+        bytes: buf.length,
+        payload: truncateForLog(payloadJson, LOG_PAYLOAD_MAX_CHARS),
+      },
+      "[mqtt] message",
     );
 
     queue.enqueue(row);

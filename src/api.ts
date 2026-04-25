@@ -13,9 +13,11 @@ import {
   rowToApi,
   type CursorPayload,
 } from "./format";
+import { logger } from "./logger";
 import { getOvokForwardMetricsSnapshot } from "./ovok-forward-metrics";
 
 const EXPORT_PAGE = 500;
+const log = logger.child({ module: "api" });
 
 type ListFilters = {
   from?: Date;
@@ -299,7 +301,7 @@ export function createFetchHandler(sql: Sql, getQueueDepth: () => number) {
               if (rows.length < EXPORT_PAGE) break;
             }
           } catch (e) {
-            console.error("[export] stream error:", e);
+            log.error({ err: e }, "[export] stream error");
             controller.error(e);
             return;
           }

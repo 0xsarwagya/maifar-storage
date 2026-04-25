@@ -1,7 +1,9 @@
 import cron, { type ScheduledTask } from "node-cron";
+import { logger } from "./logger";
 
 const DEFAULT_URL = "https://maifar-storage.onrender.com/health";
 const DEFAULT_CRON = "*/20 * * * * *";
+const log = logger.child({ module: "keepalive" });
 
 function envFalse(raw: string | undefined): boolean {
   const v = raw?.trim().toLowerCase();
@@ -13,7 +15,7 @@ export type KeepaliveHandle = { stop: () => void };
 /** Starts keepalive pings unless KEEPALIVE_ENABLED is explicitly false. */
 export function startKeepalivePing(defaultUrl?: string): KeepaliveHandle {
   if (envFalse(process.env.KEEPALIVE_ENABLED)) {
-    console.log("[ping] disabled via KEEPALIVE_ENABLED=false");
+    log.info("[ping] disabled via KEEPALIVE_ENABLED=false");
     return { stop: () => {} };
   }
 
@@ -27,32 +29,33 @@ export function startKeepalivePing(defaultUrl?: string): KeepaliveHandle {
   let attempts = 0;
   async function ping(): Promise<void> {
     if (inFlight) {
-      console.log(`[ping] ${new Date().toISOString()} skip=in_flight ${url}`);
+      log.info({ url }, "[ping] skip=in_flight");
       return;
     }
     inFlight = true;
     attempts++;
     const attemptNo = attempts;
     const t0 = Date.now();
-    console.log(
-      `[ping] ${new Date().toISOString()} sent attempt=${attemptNo} ${url}`,
-    );
+    log.info({ attempt: attemptNo, url }, "[ping] sent");
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(25_000) });
-      console.log(
-        `[ping] ${new Date().toISOString()} ok attempt=${attemptNo} status=${res.status} ${Date.now() - t0}ms ${url}`,
+      log.info(
+        {
+          attempt: attemptNo,
+          status: res.status,
+          duration_ms: Date.now() - t0,
+          url,
+        },
+        "[ping] ok",
       );
     } catch (e) {
-      console.error(
-        `[ping] ${new Date().toISOString()} fail attempt=${attemptNo} ${url}`,
-        e,
-      );
+      log.error({ err: e, attempt: attemptNo, url }, "[ping] fail");
     } finally {
       inFlight = false;
     }
   }
 
-  console.log(`[ping] cron="${cronExpr}" → ${url}`);
+  log.info({ cron: cronExpr, url }, "[ping] enabled");
   void ping(); // run once immediately
   const task: ScheduledTask = cron.schedule(cronExpr, () => {
     void ping();

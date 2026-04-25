@@ -1,8 +1,10 @@
 import type { Sql } from "./db";
+import { logger } from "./logger";
 import * as queue from "./queue";
 import type { QueuedRow } from "./types";
 
 export const MAX_FLUSH_ATTEMPTS = 8;
+const log = logger.child({ module: "flush-worker" });
 
 async function defaultSleep(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
@@ -55,26 +57,32 @@ async function insertSingleRowWithRetries(
       try {
         await afterBatchInserted([row]);
       } catch (callbackErr) {
-        console.error("[flush] afterBatchInserted callback failed:", callbackErr);
+        log.error(
+          { err: callbackErr },
+          "[flush] afterBatchInserted callback failed",
+        );
       }
       return "inserted";
     } catch (err) {
       if (isPoisonRowError(err)) {
-        console.error("[flush] dropped poison row:", {
-          topic: row.topic,
-          device_id: row.deviceId,
-          received_at: row.receivedAt.toISOString(),
-          error_code: getErrorCode(err),
-          error: err,
-        });
+        log.error(
+          {
+            topic: row.topic,
+            device_id: row.deviceId,
+            received_at: row.receivedAt.toISOString(),
+            error_code: getErrorCode(err),
+            err,
+          },
+          "[flush] dropped poison row",
+        );
         return "dropped";
       }
 
       attempt += 1;
       const wait = Math.min(30_000, 500 * 2 ** (attempt - 1));
-      console.error(
-        `[flush] isolated row attempt ${attempt}/${MAX_FLUSH_ATTEMPTS} failed:`,
-        err,
+      log.error(
+        { err, attempt, max_attempts: MAX_FLUSH_ATTEMPTS },
+        "[flush] isolated row attempt failed",
       );
       if (attempt >= MAX_FLUSH_ATTEMPTS) {
         return "requeued";
@@ -92,9 +100,7 @@ async function isolateBatchRows(
   sleep: (ms: number) => Promise<void>,
   afterBatchInserted: (rows: QueuedRow[]) => Promise<void> | void,
 ): Promise<void> {
-  console.error(
-    `[flush] isolating poison row inside batch of ${rows.length} rows`,
-  );
+  log.error({ batch_size: rows.length }, "[flush] isolating poison row");
 
   for (let i = 0; i < rows.length; i++) {
     const outcome = await insertSingleRowWithRetries(
@@ -107,9 +113,9 @@ async function isolateBatchRows(
     if (outcome === "requeued") {
       const remaining = rows.slice(i);
       queue.prependBatch(remaining);
-      console.error(
+      log.error(
+        { remaining_rows: remaining.length },
         "[flush] row isolation stopped; re-queued remaining rows",
-        remaining.length,
       );
       return;
     }
@@ -137,7 +143,10 @@ export function createFlushWorker(
         try {
           await afterBatchInserted(batch);
         } catch (callbackErr) {
-          console.error("[flush] afterBatchInserted callback failed:", callbackErr);
+          log.error(
+            { err: callbackErr },
+            "[flush] afterBatchInserted callback failed",
+          );
         }
         return;
       } catch (err) {
@@ -147,18 +156,18 @@ export function createFlushWorker(
         }
         attempt += 1;
         const wait = Math.min(30_000, 500 * 2 ** (attempt - 1));
-        console.error(
-          `[flush] attempt ${attempt}/${MAX_FLUSH_ATTEMPTS} failed:`,
-          err,
+        log.error(
+          { err, attempt, max_attempts: MAX_FLUSH_ATTEMPTS },
+          "[flush] batch flush attempt failed",
         );
         if (attempt >= MAX_FLUSH_ATTEMPTS) break;
         await sleep(wait);
       }
     }
     queue.prependBatch(batch);
-    console.error(
-      "[flush] giving up after retries; batch re-queued at front, size",
-      batch.length,
+    log.error(
+      { batch_size: batch.length },
+      "[flush] giving up after retries; batch re-queued at front",
     );
   }
 

@@ -1,16 +1,19 @@
 import { loadDatabaseTlsFromEnv } from "../src/config";
+import { logger } from "../src/logger";
 import { migrateDatabase } from "../src/schema-migrate";
+
+const log = logger.child({ module: "scripts/migrate" });
 
 const url = process.env.DATABASE_URL;
 if (!url) {
-  console.error("DATABASE_URL is required");
+  log.error("DATABASE_URL is required");
   process.exit(1);
 }
 
 try {
   await migrateDatabase(url, loadDatabaseTlsFromEnv());
-  console.log("Migration applied.");
+  log.info("Migration applied.");
 } catch (e) {
-  console.error(e);
+  log.error({ err: e }, "Migration failed.");
   process.exit(1);
 }
