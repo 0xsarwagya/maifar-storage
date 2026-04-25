@@ -12,12 +12,14 @@ import type { QueuedRow } from "./types";
 const LOG_PAYLOAD_MAX_CHARS = 16_384;
 const NUL = "\u0000";
 const PRESENCE_REALTIME_DEFAULT_PERIOD_MS = 30_000;
-const SLEEP_REALTIME_DEFAULT_PERIOD_MS = 600_000;
-const VITALS_REALTIME_DEFAULT_PERIOD_MS = 600_000;
+const SLEEP_REALTIME_DEFAULT_PERIOD_MS = 30_000;
+const VITALS_REALTIME_DEFAULT_PERIOD_MS = 5_000;
 const VITALS_BATCH_DEFAULT_PERIOD_MS = 5_000;
-const PRESENCE_BATCH_DEFAULT_PERIOD_MS = 3_600_000;
-const SLEEP_BATCH_DEFAULT_PERIOD_MS = 3_600_000;
+const PRESENCE_BATCH_DEFAULT_PERIOD_MS = 30_000;
+const SLEEP_BATCH_DEFAULT_PERIOD_MS = 30_000;
 const MC01_TOPIC_PREFIX = "MC01/";
+const OVOK_STRUCTURED_DEFINITION_SYSTEM = "https://api.ovok.com/StructuredDefinition";
+const ENVIRONMENT_OBSERVATION_CODES = new Set(["room_temperature", "ambient_light"]);
 
 type JsonRecord = Record<string, unknown>;
 
@@ -40,6 +42,19 @@ function isFhirObservationOrBundle(payload: unknown): payload is JsonRecord {
   return (
     isObjectRecord(payload) &&
     (payload.resourceType === "Observation" || payload.resourceType === "Bundle")
+  );
+}
+
+function isEnvironmentObservationPayload(payload: unknown): payload is JsonRecord {
+  if (!isObjectRecord(payload) || payload.resourceType !== "Observation") return false;
+  const code = payload.code;
+  if (!isObjectRecord(code) || !Array.isArray(code.coding)) return false;
+  return code.coding.some(
+    (entry) =>
+      isObjectRecord(entry) &&
+      entry.system === OVOK_STRUCTURED_DEFINITION_SYSTEM &&
+      typeof entry.code === "string" &&
+      ENVIRONMENT_OBSERVATION_CODES.has(entry.code),
   );
 }
 
@@ -76,7 +91,11 @@ function mapDeviceReferenceForOvok(value: unknown): unknown {
 export function resolveOvokIngestUrl(baseUrl: string, payload: unknown): string | null {
   if (!isFhirObservationOrBundle(payload)) return null;
   const path =
-    payload.resourceType === "Bundle" ? "/v1/ingest/fhir/bundle" : "/v1/ingest/fhir";
+    payload.resourceType === "Bundle"
+      ? "/v1/ingest/fhir/bundle"
+      : isEnvironmentObservationPayload(payload)
+        ? "/v1/ingest/environment"
+        : "/v1/ingest/fhir";
   return `${baseUrl.replace(/\/+$/, "")}${path}`;
 }
 
@@ -163,6 +182,39 @@ function readUnknown(record: JsonRecord, keys: readonly string[]): unknown {
   return undefined;
 }
 
+function parseBooleanish(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null;
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return null;
+    if (["1", "true", "online", "connected", "on", "yes"].includes(normalized)) {
+      return true;
+    }
+    if (["0", "false", "offline", "disconnected", "off", "no"].includes(normalized)) {
+      return false;
+    }
+  }
+  return null;
+}
+
+export function extractDeviceOnlineState(payload: unknown): boolean | null {
+  if (!isObjectRecord(payload)) return null;
+  return parseBooleanish(readUnknown(payload, ["online", "isOnline"]));
+}
+
+function expandAttributeValuePayload(payload: JsonRecord): JsonRecord {
+  const attributeName = readString(payload, ["attributeName", "attribute_name"]);
+  if (!attributeName || !("value" in payload)) return payload;
+  return {
+    ...payload,
+    [attributeName]: payload.value,
+  };
+}
+
 function readNumber(record: JsonRecord, keys: readonly string[]): number | null {
   for (const key of keys) {
     const value = record[key];
@@ -206,7 +258,7 @@ function resolveEffectiveInstant(
   payload: JsonRecord,
   receivedAt: Date,
 ): string {
-  const candidate = readString(payload, [
+  const candidate = readUnknown(payload, [
     "effectiveInstant",
     "timestamp",
     "time",
@@ -214,7 +266,16 @@ function resolveEffectiveInstant(
     "date",
     "datetime",
   ]);
-  if (!candidate) return receivedAt.toISOString();
+  if (typeof candidate === "number" && Number.isFinite(candidate)) {
+    const parsed = new Date(candidate);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+    return receivedAt.toISOString();
+  }
+  if (typeof candidate !== "string" || candidate.trim() === "") {
+    return receivedAt.toISOString();
+  }
   const parsed = new Date(candidate);
   if (Number.isNaN(parsed.getTime())) {
     return receivedAt.toISOString();
@@ -440,6 +501,206 @@ function toFiniteNumber(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
+}
+
+function normalizeRgbChannel(value: unknown): number | null {
+  const channel = toFiniteNumber(value);
+  if (channel === null) return null;
+  return Math.max(0, Math.min(255, Math.round(channel)));
+}
+
+function rgbToHex(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^#?[0-9a-f]{6}$/i.test(trimmed)) {
+      return trimmed.startsWith("#") ? trimmed.toUpperCase() : `#${trimmed.toUpperCase()}`;
+    }
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        return rgbToHex(JSON.parse(trimmed) as unknown);
+      } catch {
+        return null;
+      }
+    }
+    if (trimmed.includes(",")) {
+      return rgbToHex(trimmed.split(",").map((part) => part.trim()));
+    }
+    return null;
+  }
+
+  if (!Array.isArray(value) || value.length < 3) return null;
+  const channels = value
+    .slice(0, 3)
+    .map((channel) => normalizeRgbChannel(channel));
+  if (channels.some((channel) => channel === null)) return null;
+  return `#${channels
+    .map((channel) => channel!.toString(16).padStart(2, "0").toUpperCase())
+    .join("")}`;
+}
+
+function looksLikeRoomTemperaturePayload(topic: string, payload: JsonRecord): boolean {
+  if (/\b(room[_-]?temperature|temperature|temp)\b/i.test(topic)) return true;
+  return (
+    "roomTemperature" in payload ||
+    "room_temperature" in payload ||
+    "temperature" in payload ||
+    "temp" in payload
+  );
+}
+
+function extractRoomTemperatureValue(payload: JsonRecord): number | null {
+  return toFiniteNumber(
+    readUnknown(payload, [
+      "roomTemperature",
+      "room_temperature",
+      "temperature",
+      "temp",
+      "value",
+    ]),
+  );
+}
+
+function looksLikeAmbientLightPayload(topic: string, payload: JsonRecord): boolean {
+  if (/\b(ambient[_-]?light|illuminance|rgb|ir)\b/i.test(topic)) return true;
+  return (
+    "ambientLight" in payload ||
+    "ambient_light" in payload ||
+    "illuminance" in payload ||
+    "IR" in payload ||
+    "RGB" in payload ||
+    "lightColor" in payload ||
+    "light_color" in payload
+  );
+}
+
+function extractAmbientLightValue(
+  payload: JsonRecord,
+): { illuminance: number | null; lightColor: string | null } | null {
+  const illuminance = toFiniteNumber(
+    readUnknown(payload, ["illuminance", "ambientLight", "ambient_light", "IR", "value"]),
+  );
+  const lightColor = rgbToHex(
+    readUnknown(payload, ["lightColor", "light_color", "RGB"]),
+  );
+  if (illuminance === null && lightColor === null) return null;
+  return { illuminance, lightColor };
+}
+
+function buildRoomTemperatureObservation(params: {
+  deviceReferenceId: string;
+  effectiveInstant: string;
+  value: number;
+}): JsonRecord {
+  return {
+    resourceType: "Observation",
+    status: "final",
+    category: [
+      {
+        coding: [
+          {
+            system: "http://terminology.hl7.org/CodeSystem/observation-category",
+            code: "environment",
+          },
+        ],
+      },
+    ],
+    code: {
+      coding: [
+        {
+          system: "https://api.ovok.com/StructuredDefinition",
+          code: "room_temperature",
+        },
+        {
+          system: "http://loinc.org",
+          code: "8310-5",
+          display: "Room temperature",
+        },
+      ],
+    },
+    subject: { reference: "Patient/not_implemented" },
+    effectiveInstant: params.effectiveInstant,
+    valueQuantity: {
+      value: params.value,
+      unit: "°C",
+      system: "http://unitsofmeasure.org",
+      code: "Cel",
+    },
+    device: {
+      reference: `Device/${params.deviceReferenceId}`,
+    },
+  };
+}
+
+function buildAmbientLightObservation(params: {
+  deviceReferenceId: string;
+  effectiveInstant: string;
+  illuminance: number | null;
+  lightColor: string | null;
+}): JsonRecord {
+  const component: JsonRecord[] = [];
+  if (params.illuminance !== null) {
+    component.push({
+      code: {
+        coding: [
+          {
+            system: "https://api.ovok.com/StructuredDefinition",
+            code: "illuminance",
+          },
+          {
+            system: "http://loinc.org",
+            code: "39125-0",
+            display: "Light intensity",
+          },
+        ],
+      },
+      valueQuantity: {
+        value: params.illuminance,
+        unit: "lux",
+      },
+    });
+  }
+  if (params.lightColor !== null) {
+    component.push({
+      code: {
+        coding: [
+          {
+            system: "https://api.ovok.com/StructuredDefinition",
+            code: "light_color",
+          },
+        ],
+      },
+      valueString: params.lightColor,
+    });
+  }
+
+  return {
+    resourceType: "Observation",
+    status: "final",
+    category: [
+      {
+        coding: [
+          {
+            system: "http://terminology.hl7.org/CodeSystem/observation-category",
+            code: "environment",
+          },
+        ],
+      },
+    ],
+    code: {
+      coding: [
+        {
+          system: "https://api.ovok.com/StructuredDefinition",
+          code: "ambient_light",
+        },
+      ],
+    },
+    subject: { reference: "Patient/not_implemented" },
+    effectiveInstant: params.effectiveInstant,
+    component,
+    device: {
+      reference: `Device/${params.deviceReferenceId}`,
+    },
+  };
 }
 
 function toInteger(value: unknown): number | null {
@@ -1132,26 +1393,30 @@ export function normalizePayloadForStorage(
   receivedAt: Date,
 ): unknown {
   if (!isObjectRecord(payload)) return payload;
-  if (payload.resourceType === "Bundle" && looksLikeBatchStatisticsPayload(topic, payload)) {
-    return ensureLongestSleepDurationForBundle(payload);
+  const sourcePayload = expandAttributeValuePayload(payload);
+  if (
+    sourcePayload.resourceType === "Bundle" &&
+    looksLikeBatchStatisticsPayload(topic, sourcePayload)
+  ) {
+    return ensureLongestSleepDurationForBundle(sourcePayload);
   }
-  if (payload.resourceType === "Observation") return payload;
+  if (sourcePayload.resourceType === "Observation") return sourcePayload;
 
-  const payloadPeriod = readNumber(payload, ["period", "periodMs", "samplePeriodMs"]);
+  const payloadPeriod = readNumber(sourcePayload, ["period", "periodMs", "samplePeriodMs"]);
   const deviceReferenceId =
     deviceId ??
-    readString(payload, ["deviceId", "device_id", "device"]) ??
+    readString(sourcePayload, ["deviceId", "device_id", "device"]) ??
     "not_implemented";
-  const effectiveInstant = resolveEffectiveInstant(payload, receivedAt);
-  const isBatch = looksLikeBatchPayload(topic, payload);
+  const effectiveInstant = resolveEffectiveInstant(sourcePayload, receivedAt);
+  const isBatch = looksLikeBatchPayload(topic, sourcePayload);
 
-  if (looksLikeBatchStatisticsPayload(topic, payload)) {
-    const bundle = buildBatchStatisticsBundle(payload, deviceReferenceId, receivedAt);
+  if (looksLikeBatchStatisticsPayload(topic, sourcePayload)) {
+    const bundle = buildBatchStatisticsBundle(sourcePayload, deviceReferenceId, receivedAt);
     if (bundle !== null) return bundle;
   }
 
-  if (looksLikeHeartRatePayload(topic, payload)) {
-    const raw = readUnknown(payload, [
+  if (looksLikeHeartRatePayload(topic, sourcePayload)) {
+    const raw = readUnknown(sourcePayload, [
       "hr",
       "heartRate",
       "heart_rate",
@@ -1179,7 +1444,7 @@ export function normalizePayloadForStorage(
         average: vital.average,
         effectiveInstant: isBatch ? undefined : effectiveInstant,
         effectivePeriod: isBatch
-          ? resolveNineAmBatchEffectivePeriod(payload, receivedAt)
+          ? resolveNineAmBatchEffectivePeriod(sourcePayload, receivedAt)
           : undefined,
         period: vitalPeriod,
         deviceReferenceId,
@@ -1188,8 +1453,8 @@ export function normalizePayloadForStorage(
     }
   }
 
-  if (looksLikeBreathingRatePayload(topic, payload)) {
-    const raw = readUnknown(payload, [
+  if (looksLikeBreathingRatePayload(topic, sourcePayload)) {
+    const raw = readUnknown(sourcePayload, [
       "br",
       "rr",
       "breathingRate",
@@ -1220,7 +1485,7 @@ export function normalizePayloadForStorage(
         average: vital.average,
         effectiveInstant: isBatch ? undefined : effectiveInstant,
         effectivePeriod: isBatch
-          ? resolveNineAmBatchEffectivePeriod(payload, receivedAt)
+          ? resolveNineAmBatchEffectivePeriod(sourcePayload, receivedAt)
           : undefined,
         period: vitalPeriod,
         deviceReferenceId,
@@ -1229,10 +1494,10 @@ export function normalizePayloadForStorage(
     }
   }
 
-  if (looksLikeSleepStatusPayload(topic, payload)) {
+  if (looksLikeSleepStatusPayload(topic, sourcePayload)) {
     if (isBatch) {
       const sleepBatchPeriod = payloadPeriod ?? SLEEP_BATCH_DEFAULT_PERIOD_MS;
-      const batchRaw = readUnknown(payload, [
+      const batchRaw = readUnknown(sourcePayload, [
         "sleepStatus",
         "sleep_status",
         "sleepstatus",
@@ -1248,7 +1513,7 @@ export function normalizePayloadForStorage(
       if (sampledData !== null) {
         const sampledCount = sampledData.split(/\s+/).filter(Boolean).length;
         const effectivePeriod = resolveEffectivePeriod(
-          payload,
+          sourcePayload,
           receivedAt,
           sampledCount > 1 ? 2 : 1,
           sleepBatchPeriod,
@@ -1297,7 +1562,7 @@ export function normalizePayloadForStorage(
       }
     }
 
-    const sleepStatus = extractSleepStatusValue(topic, payload);
+    const sleepStatus = extractSleepStatusValue(topic, sourcePayload);
     if (sleepStatus !== null) {
       const sleepRealtimePeriod = payloadPeriod ?? SLEEP_REALTIME_DEFAULT_PERIOD_MS;
       return {
@@ -1342,14 +1607,37 @@ export function normalizePayloadForStorage(
           reference: `Device/${deviceReferenceId}`,
         },
       };
+	  }
+	}
+
+  if (looksLikeRoomTemperaturePayload(topic, sourcePayload)) {
+    const roomTemperature = extractRoomTemperatureValue(sourcePayload);
+    if (roomTemperature !== null) {
+      return buildRoomTemperatureObservation({
+        deviceReferenceId,
+        effectiveInstant,
+        value: roomTemperature,
+      });
     }
   }
 
-  if (!looksLikePresencePayload(topic, payload)) return payload;
+  if (looksLikeAmbientLightPayload(topic, sourcePayload)) {
+    const ambientLight = extractAmbientLightValue(sourcePayload);
+    if (ambientLight !== null) {
+      return buildAmbientLightObservation({
+        deviceReferenceId,
+        effectiveInstant,
+        illuminance: ambientLight.illuminance,
+        lightColor: ambientLight.lightColor,
+      });
+    }
+  }
+
+  if (!looksLikePresencePayload(topic, sourcePayload)) return sourcePayload;
 
   if (isBatch) {
     const presenceBatchPeriod = payloadPeriod ?? PRESENCE_BATCH_DEFAULT_PERIOD_MS;
-    const batchRaw = readUnknown(payload, [
+    const batchRaw = readUnknown(sourcePayload, [
       "presence",
       "present",
       "occupancy",
@@ -1365,7 +1653,7 @@ export function normalizePayloadForStorage(
     if (sampledData !== null) {
       const sampledCount = sampledData.split(/\s+/).filter(Boolean).length;
       const effectivePeriod = resolveEffectivePeriod(
-        payload,
+        sourcePayload,
         receivedAt,
         sampledCount > 1 ? 2 : 1,
         presenceBatchPeriod,
@@ -1412,11 +1700,11 @@ export function normalizePayloadForStorage(
         },
       };
     }
-    return payload;
+    return sourcePayload;
   }
 
-  const value = extractPresenceValue(payload);
-  if (value === null) return payload;
+  const value = extractPresenceValue(sourcePayload);
+  if (value === null) return sourcePayload;
   const presenceRealtimePeriod = payloadPeriod ?? PRESENCE_REALTIME_DEFAULT_PERIOD_MS;
 
   return {

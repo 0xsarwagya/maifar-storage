@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  extractDeviceOnlineState,
   forwardNormalizedPayloadToOvok,
   normalizePayloadForStorage,
   parsePayloadTextForStorage,
@@ -46,6 +47,17 @@ describe("mqtt ingest payload sanitization", () => {
       a: "xy",
       b: ["z", { c: "mn" }],
     });
+  });
+});
+
+describe("mqtt ingest online state parsing", () => {
+  test("parses boolean-like online control payloads", () => {
+    expect(extractDeviceOnlineState({ online: "0" })).toBe(false);
+    expect(extractDeviceOnlineState({ online: 1 })).toBe(true);
+    expect(extractDeviceOnlineState({ isOnline: false })).toBe(false);
+    expect(extractDeviceOnlineState({ online: "offline" })).toBe(false);
+    expect(extractDeviceOnlineState({ method: "lwt" })).toBeNull();
+    expect(extractDeviceOnlineState("online=0")).toBeNull();
   });
 });
 
@@ -154,7 +166,7 @@ describe("mqtt ingest sleep status normalization", () => {
     expect((out.code as { coding: Array<{ code: string }> }).coding[0]?.code).toBe(
       "107145-5",
     );
-    expect((out.valueSampledData as { period: number }).period).toBe(600000);
+    expect((out.valueSampledData as { period: number }).period).toBe(30000);
   });
 
   test("maps asleep and invalid status values", () => {
@@ -206,7 +218,7 @@ describe("mqtt ingest realtime HR/BR normalization", () => {
     expect(
       (out.valueSampledData as { origin: { unit: string }; period: number; data: string })
         .period,
-    ).toBe(600000);
+    ).toBe(5000);
     expect(
       (out.valueSampledData as { origin: { unit: string }; period: number; data: string })
         .data,
@@ -290,6 +302,64 @@ describe("mqtt ingest realtime HR/BR normalization", () => {
   });
 });
 
+describe("mqtt ingest environment normalization", () => {
+  test("normalizes room temperature from attributeName/value payloads", () => {
+    const out = normalizePayloadForStorage(
+      "MC01/Client/200d3d2c0109",
+      {
+        method: "post",
+        attributeName: "temperature",
+        value: 23.5,
+        timestamp: 1713535200000,
+      },
+      "200d3d2c0109",
+      new Date("2026-04-18T14:00:00.000Z"),
+    ) as Record<string, unknown>;
+
+    expect(out.resourceType).toBe("Observation");
+    expect((out.code as { coding: Array<{ code: string }> }).coding[0]?.code).toBe(
+      "room_temperature",
+    );
+    expect((out.valueQuantity as { value: number; code: string }).value).toBe(23.5);
+    expect((out.valueQuantity as { value: number; code: string }).code).toBe("Cel");
+    expect(out.effectiveInstant).toBe("2024-04-19T14:00:00.000Z");
+  });
+
+  test("normalizes ambient light with illuminance and RGB color", () => {
+    const out = normalizePayloadForStorage(
+      "devices/acme-1/ambient-light",
+      {
+        IR: 320,
+        RGB: [18, 52, 86],
+        timestamp: "2026-04-18T14:00:00.000Z",
+      },
+      "2500005",
+      new Date("2026-04-18T14:00:01.000Z"),
+    ) as Record<string, unknown>;
+
+    expect(out.resourceType).toBe("Observation");
+    expect((out.code as { coding: Array<{ code: string }> }).coding[0]?.code).toBe(
+      "ambient_light",
+    );
+    expect(
+      (
+        out.component as Array<{
+          valueQuantity?: { value: number; unit: string };
+          valueString?: string;
+        }>
+      )[0]?.valueQuantity?.value,
+    ).toBe(320);
+    expect(
+      (
+        out.component as Array<{
+          valueQuantity?: { value: number; unit: string };
+          valueString?: string;
+        }>
+      )[1]?.valueString,
+    ).toBe("#123456");
+  });
+});
+
 describe("mqtt ingest batch normalization", () => {
   test("normalizes batch presence payload with effectivePeriod", () => {
     const out = normalizePayloadForStorage(
@@ -336,6 +406,21 @@ describe("mqtt ingest batch normalization", () => {
     );
     expect((out.valueSampledData as { data: string }).data).toBe("1 E 0 -1");
     expect((out.device as { reference: string }).reference).toBe("Device/2500002");
+  });
+
+  test("defaults batch sleep sampled period to 30 seconds", () => {
+    const out = normalizePayloadForStorage(
+      "devices/acme-1/batch-sleep",
+      {
+        batch_sleep: [1, 0, -1],
+        start: "2025-08-20T16:49:55+00:00",
+        end: "2025-08-20T16:51:25+00:00",
+      },
+      "2500002",
+      new Date("2025-08-20T16:52:00.000Z"),
+    ) as Record<string, unknown>;
+
+    expect((out.valueSampledData as { period: number }).period).toBe(30000);
   });
 
   test("normalizes batch breathing-rate payload without component", () => {
@@ -396,6 +481,21 @@ describe("mqtt ingest batch normalization", () => {
       end: "2025-08-20T16:30:00.000Z",
     });
     expect((out.valueSampledData as { period: number }).period).toBe(3600000);
+  });
+
+  test("defaults presence batch sampled period to 30 seconds", () => {
+    const out = normalizePayloadForStorage(
+      "devices/acme-1/batch-presence",
+      {
+        batch_presence: "1 0 1",
+        start: "2025-08-20T15:30:00+00:00",
+        end: "2025-08-20T16:30:00+00:00",
+      },
+      "2500001",
+      new Date("2025-08-20T16:30:00.000Z"),
+    ) as Record<string, unknown>;
+
+    expect((out.valueSampledData as { period: number }).period).toBe(30000);
   });
 
   test("uses previous 9AM UTC window for vitals batch fallback", () => {
@@ -555,6 +655,19 @@ describe("mqtt ingest ovok forwarding", () => {
       }),
     ).toBe("https://api.dev.ovok.com/v1/ingest/fhir");
     expect(
+      resolveOvokIngestUrl("https://api.dev.ovok.com", {
+        resourceType: "Observation",
+        code: {
+          coding: [
+            {
+              system: "https://api.ovok.com/StructuredDefinition",
+              code: "room_temperature",
+            },
+          ],
+        },
+      }),
+    ).toBe("https://api.dev.ovok.com/v1/ingest/environment");
+    expect(
       resolveOvokIngestUrl("https://api.dev.ovok.com/", {
         resourceType: "Bundle",
       }),
@@ -600,6 +713,49 @@ describe("mqtt ingest ovok forwarding", () => {
     expect(metrics.requests_sent_total).toBe(1);
     expect(metrics.requests_failed_total).toBe(0);
     expect(metrics.bytes_sent_total).toBeGreaterThan(10);
+  });
+
+  test("forwards environment observations to the dedicated Ovok environment ingest route", async () => {
+    resetOvokForwardMetricsForTests();
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response("", { status: 202 });
+    }) as typeof fetch;
+
+    try {
+      await forwardNormalizedPayloadToOvok(
+        "devices/acme-1/environment",
+        {
+          resourceType: "Observation",
+          code: {
+            coding: [
+              {
+                system: "https://api.ovok.com/StructuredDefinition",
+                code: "ambient_light",
+              },
+            ],
+          },
+          component: [],
+          device: { reference: "Device/200d3d2c0109" },
+        },
+        {
+          ovokIngestEnabled: true,
+          ovokIngestBaseUrl: "https://api.dev.ovok.com",
+          ovokIngestApiKey: undefined,
+          ovokIngestApiKeyHeader: "x-api-key",
+          ovokIngestTimeoutMs: 10000,
+        },
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.url).toBe("https://api.dev.ovok.com/v1/ingest/environment");
+    const sentBody = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+    expect((sentBody.device as { reference: string }).reference).toBe("Device/MC01-200d3d2c0109");
   });
 
   test("rewrites device references to Device/MC01-deviceId before forwarding", async () => {
