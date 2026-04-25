@@ -19,6 +19,8 @@ const VITALS_BATCH_DEFAULT_PERIOD_MS = 5_000;
 const PRESENCE_BATCH_DEFAULT_PERIOD_MS = 30_000;
 const SLEEP_BATCH_DEFAULT_PERIOD_MS = 30_000;
 const MC01_TOPIC_PREFIX = "MC01/";
+const MC01_CLIENT_TOPIC_PREFIX = "MC01/Client/";
+const MC01_SERVER_TOPIC_PREFIX = "MC01/Server/";
 const log = logger.child({ module: "mqtt-ingest" });
 const OVOK_STRUCTURED_DEFINITION_SYSTEM = "https://api.ovok.com/StructuredDefinition";
 const ENVIRONMENT_OBSERVATION_CODES = new Set(["room_temperature", "ambient_light"]);
@@ -1863,13 +1865,7 @@ export function startMqttIngest(
 
   client.on("connect", () => {
     log.info({ subscribe_qos: config.mqttSubscribeQos }, "[mqtt] connected");
-    const topicsToSubscribe = config.mqttTopics.filter(
-      (topic) => !topic.startsWith(MC01_TOPIC_PREFIX),
-    );
-    if (topicsToSubscribe.length !== config.mqttTopics.length) {
-      log.info("[mqtt] skipping MC01 topics for this project");
-    }
-    for (const t of topicsToSubscribe) {
+    for (const t of config.mqttTopics) {
       client.subscribe(t, { qos: config.mqttSubscribeQos }, (err) => {
         if (err) log.error({ err, topic: t }, "[mqtt] subscribe failed");
         else log.info({ topic: t }, "[mqtt] subscribed");
@@ -1887,12 +1883,15 @@ export function startMqttIngest(
 
   client.on("message", (topic, buf) => {
     log.info({ topic, bytes: buf.length }, "[mqtt] inbound");
-    if (topic.startsWith(MC01_TOPIC_PREFIX)) {
-      log.debug({ topic }, "[mqtt] skipped MC01 topic");
+    if (!config.storeServerTopics && topic.startsWith(MC01_SERVER_TOPIC_PREFIX)) {
+      log.debug({ topic }, "[mqtt] skipped server topic");
       return;
     }
-    if (!config.storeServerTopics && /^MC01\/Server\//i.test(topic)) {
-      log.debug({ topic }, "[mqtt] skipped server topic");
+    if (
+      topic.startsWith(MC01_TOPIC_PREFIX) &&
+      !topic.startsWith(MC01_CLIENT_TOPIC_PREFIX)
+    ) {
+      log.debug({ topic }, "[mqtt] skipped non-client MC01 topic");
       return;
     }
     const parsed = parsePayloadTextForStorage(buf.toString("utf8"));
