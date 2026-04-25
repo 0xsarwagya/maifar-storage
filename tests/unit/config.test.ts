@@ -107,7 +107,7 @@ describe("loadConfig", () => {
     expect(c.autoMigrate).toBe(true);
     expect(c.mqtt).toEqual({ kind: "url", url: "mqtt://localhost:1883" });
     expect(c.mqttTopics).toEqual(["a/b", "#"]);
-    expect(c.httpPort).toBe(3000);
+    expect(c.httpPort).toBe(10000);
     expect(c.batchMax).toBe(100);
     expect(c.flushIntervalMs).toBe(1000);
     expect(c.deviceIdTopicRegex.test("devices/acme/telemetry")).toBe(true);
@@ -209,7 +209,7 @@ describe("loadConfig", () => {
     process.env.FLUSH_INTERVAL_MS = "10";
 
     const c = loadConfig();
-    expect(c.httpPort).toBe(3000);
+    expect(c.httpPort).toBe(10000);
     expect(c.batchMax).toBe(1);
     expect(c.flushIntervalMs).toBe(50);
   });

@@ -320,7 +320,7 @@ export function loadConfig(): AppConfig {
     mqttTlsCa: resolveMqttTlsCaPem(),
     mqttTopics: topics,
     mqttSubscribeQos,
-    httpPort: Number(process.env.HTTP_PORT ?? 3000) || 3000,
+    httpPort: Number(process.env.HTTP_PORT ?? 10000) || 10000,
     batchMax: Math.max(1, Number(process.env.BATCH_MAX ?? 100)),
     flushIntervalMs: Math.max(50, Number(process.env.FLUSH_INTERVAL_MS ?? 1000)),
     deviceIdTopicRegex,
